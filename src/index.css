@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  background: #F8FAFC;
+  color: #0F172A;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+}
+
+input, textarea, select, button {
+  font-family: inherit;
+  font-size: 17px;
+}
+
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl shadow-card;
+  }
+  .btn-primary {
+    @apply rounded-2xl bg-accent text-white font-semibold py-3.5 px-5 active:opacity-80 transition-opacity disabled:opacity-40;
+  }
+  .btn-secondary {
+    @apply rounded-2xl bg-white text-accent-deep font-semibold py-3.5 px-5 active:opacity-80 border border-hairline;
+  }
+  .input {
+    @apply w-full rounded-xl bg-white border border-hairline px-4 py-3 outline-none focus:border-accent;
+  }
+}
