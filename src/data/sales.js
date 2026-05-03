@@ -7,7 +7,8 @@ import {
   onSnapshot,
   serverTimestamp,
   query,
-  orderBy
+  orderBy,
+  runTransaction
 } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import { shortId } from '../utils/id.js';
@@ -84,4 +85,28 @@ export async function restoreSale(eventId, saleId) {
 
 export async function hardDeleteDraft(eventId, saleId) {
   await deleteDoc(doc(salesCol(eventId), saleId));
+}
+
+// ─── Edit-mode lock ──────────────────────────────────────────────
+// editingByHostId + editingAt fields on the sale doc act as a soft lock.
+// Heartbeat refreshes the timestamp; release clears the fields. Locks older
+// than the timeout (handled at read time) are treated as abandoned.
+
+export async function refreshEditLock(eventId, saleId, { hostId }) {
+  await updateDoc(doc(salesCol(eventId), saleId), {
+    editingByHostId: hostId,
+    editingAt: serverTimestamp()
+  });
+}
+
+// Atomic release: only clear the lock if we still hold it (avoids
+// clobbering another host who took over while we were navigating away).
+export async function releaseEditLock(eventId, saleId, { hostId }) {
+  const ref = doc(salesCol(eventId), saleId);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
+    if (snap.data().editingByHostId !== hostId) return;
+    tx.update(ref, { editingByHostId: null, editingAt: null });
+  });
 }

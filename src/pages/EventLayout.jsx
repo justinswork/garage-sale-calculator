@@ -14,7 +14,8 @@ import {
   getDeviceHostId,
   setDeviceHostId,
   clearDeviceHostId,
-  pushRecentEvent
+  pushRecentEvent,
+  removeRecentEvent
 } from '../utils/storage.js';
 
 export default function EventLayout() {
@@ -49,6 +50,15 @@ export default function EventLayout() {
   useEffect(() => {
     if (event) pushRecentEvent({ id: event.id, name: event.name });
   }, [event?.id, event?.name]);
+
+  // Event was deleted server-side (by its creator). Wipe this device's
+  // recents + host mapping so it doesn't keep showing on the landing page.
+  useEffect(() => {
+    if (event === null) {
+      removeRecentEvent(eventId);
+      clearDeviceHostId(eventId);
+    }
+  }, [event, eventId]);
 
   if (event === undefined || hosts === undefined) return <Loader label="Loading event…" />;
 

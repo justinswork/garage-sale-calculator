@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+
+// Edit-mode lock timing. The holder heartbeats every HEARTBEAT to refresh
+// editingAt; if that timestamp is older than TIMEOUT, the lock is treated
+// as abandoned and another host can take over.
+const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+const LOCK_HEARTBEAT_MS = 60 * 1000;
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Trash2, Plus, X, Check, AlertTriangle, RotateCcw, Sparkles,
@@ -11,7 +17,8 @@ import EventHeader from '../components/EventHeader.jsx';
 import Loader from '../components/Loader.jsx';
 import {
   watchSale, updateSale, completeSale,
-  softDeleteSale, restoreSale, hardDeleteDraft
+  softDeleteSale, restoreSale, hardDeleteDraft,
+  refreshEditLock, releaseEditLock
 } from '../data/sales.js';
 import { watchQuickAdds, upsertQuickAdd, touchQuickAdd, removeQuickAdd } from '../data/quickAdd.js';
 import { recordAudit } from '../data/audit.js';
@@ -101,6 +108,40 @@ export default function SalePage() {
     };
   }, [eventId, saleId]);
 
+  // Edit-mode lock: keep latest sale + event + host in a ref so the
+  // heartbeat tick always reads current state without re-running the effect.
+  const lockStateRef = useRef({});
+  lockStateRef.current = { sale, eventStatus: event.status, hostId: currentHost.id };
+
+  useEffect(() => {
+    let alive = true;
+    const tick = () => {
+      if (!alive) return;
+      const { sale: s, eventStatus, hostId } = lockStateRef.current;
+      if (!s || s.deletedAt) return;
+      if (eventStatus === 'closed') return;
+      // Only the entered-by host may hold the lock on a draft.
+      if (s.status === 'draft' && s.enteredByHostId !== hostId) return;
+      // Don't take over if another host has a fresh lock.
+      const otherTs = s.editingAt?.toMillis?.() || 0;
+      const otherActive = s.editingByHostId
+        && s.editingByHostId !== hostId
+        && otherTs
+        && Date.now() - otherTs <= LOCK_TIMEOUT_MS;
+      if (otherActive) return;
+      refreshEditLock(eventId, saleId, { hostId }).catch(() => {});
+    };
+    tick();
+    const interval = setInterval(tick, LOCK_HEARTBEAT_MS);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+      releaseEditLock(eventId, saleId, {
+        hostId: lockStateRef.current.hostId
+      }).catch(() => {});
+    };
+  }, [eventId, saleId]);
+
   const enteredByHost = sale ? hosts.find((h) => h.id === sale.enteredByHostId) : null;
   const subtotal = useMemo(() => itemsSubtotal(items), [items]);
   const overrideTotal = useMemo(() => (overrideStr.trim() ? parseMoney(overrideStr) : null), [overrideStr]);
@@ -139,7 +180,24 @@ export default function SalePage() {
   // names/qty, adjust cash, etc. after the rush) — but show all sections at
   // once with no Continue/Complete buttons. Deleted or closed = locked.
   const isInProgress = isDraft || isPendingState;
-  const editable = !isDeleted && !eventClosed;
+  // Drafts are tied to the host who started them — even if that host's lock
+  // somehow expires, another host shouldn't be able to take over their draft.
+  const isOwnDraft = isDraft && sale.enteredByHostId === currentHost.id;
+  const draftLockedToOther = isDraft && !isOwnDraft;
+
+  // Live edit-mode lock: only one host edits any transaction at a time.
+  // The lock is held for LOCK_TIMEOUT_MS from the most recent heartbeat;
+  // if the holder closes the page without releasing, the lock auto-expires.
+  const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+  const lockTs = sale.editingAt?.toMillis?.() || 0;
+  const lockExpired = !lockTs || Date.now() - lockTs > LOCK_TIMEOUT_MS;
+  const lockHolderHostId = sale.editingByHostId || null;
+  const lockedByOther = lockHolderHostId
+    && lockHolderHostId !== currentHost.id
+    && !lockExpired;
+  const lockHolderHost = lockHolderHostId ? hosts.find((h) => h.id === lockHolderHostId) : null;
+
+  const editable = !isDeleted && !eventClosed && !draftLockedToOther && !lockedByOther;
   // Money-affecting fields (price, qty, override, cash received, payment
   // method, recipient, allocation) are only editable while the transaction is
   // still in progress. Completed transactions allow only metadata edits
@@ -612,6 +670,18 @@ export default function SalePage() {
         {isDeleted && (
           <div className="card p-3 bg-red-50 border border-red-200 text-red-700 text-[13px]">
             This transaction has been deleted and is excluded from totals.
+          </div>
+        )}
+        {(draftLockedToOther || lockedByOther) && (
+          <div className="card p-3 bg-amber-50 border border-amber-200 flex items-center gap-2 text-[13px] text-amber-800">
+            <AlertTriangle size={16} className="shrink-0" />
+            <span>
+              <span className="font-semibold">
+                {(draftLockedToOther ? enteredByHost?.name : lockHolderHost?.name) || 'Another host'}
+              </span>{' '}
+              is currently {isDraft ? 'working on this draft' : 'editing this transaction'}.
+              You can view it but not make changes until they finish.
+            </span>
           </div>
         )}
 
