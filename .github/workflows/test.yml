@@ -19,7 +19,12 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        # Using `npm install` instead of `npm ci` — the lockfile contains
+        # platform-specific esbuild binaries (Windows/macOS/NetBSD/Linux)
+        # that npm ci tries to install strictly and fails on EBADPLATFORM.
+        # `npm install` honors the lockfile but skips incompatible optional
+        # deps gracefully.
+        run: npm install
 
       - name: Run unit + integration tests
         run: npm run test:run
