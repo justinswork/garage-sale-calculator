@@ -1,4 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" fill="#059669"/>
-  <text x="256" y="356" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="320" font-weight="700" fill="white" text-anchor="middle">$</text>
+  <g transform="translate(103 103) scale(12.79)"
+     fill="none"
+     stroke="#ffffff"
+     stroke-width="1.6"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>
+    <circle cx="7.5" cy="7.5" r="0.5" fill="#ffffff"/>
+  </g>
 </svg>
