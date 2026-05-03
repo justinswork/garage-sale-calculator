@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tag, Plus, ArrowRight } from 'lucide-react';
+import { Tag, Plus, ArrowRight, Calendar, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { createEvent, getEvent } from '../data/events.js';
 import { getRecentEvents } from '../utils/storage.js';
+import { formatDayLabel } from '../utils/dates.js';
 
 export default function LandingPage() {
   const { user } = useAuth();
@@ -103,17 +104,7 @@ export default function LandingPage() {
           <div className="w-full max-w-md flex flex-col gap-2">
             <div className="text-[12px] uppercase tracking-wide text-muted px-2">Recent</div>
             {recents.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => navigate(`/e/${r.id}`)}
-                className="card p-4 text-left active:opacity-70 flex items-center justify-between"
-              >
-                <div>
-                  <div className="font-semibold">{r.name}</div>
-                  <div className="text-[12px] text-muted font-mono">{r.id}</div>
-                </div>
-                <ArrowRight size={18} className="text-muted" />
-              </button>
+              <RecentEventRow key={r.id} entry={r} onOpen={() => navigate(`/e/${r.id}`)} />
             ))}
           </div>
         )}
@@ -130,4 +121,58 @@ function parseEventInput(input) {
   const match = s.match(/\/e\/([a-z0-9]+)/i);
   if (match) return match[1].toLowerCase();
   return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function RecentEventRow({ entry, onOpen }) {
+  const dateLabel = (() => {
+    const { startDate, endDate } = entry;
+    if (!startDate && !endDate) return null;
+    if (startDate && endDate && startDate !== endDate) {
+      return `${formatDayLabel(startDate)} – ${formatDayLabel(endDate)}`;
+    }
+    return formatDayLabel(startDate || endDate);
+  })();
+
+  const createdLabel = entry.createdAt
+    ? new Date(entry.createdAt).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: new Date(entry.createdAt).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+      })
+    : null;
+
+  return (
+    <button
+      onClick={onOpen}
+      className="card p-4 text-left active:opacity-70 flex items-center gap-3"
+    >
+      <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+        <div className="font-semibold truncate">{entry.name}</div>
+        {(entry.creatorName || createdLabel) && (
+          <div className="text-[12px] text-muted">
+            {entry.creatorName && <>by <span className="text-ink">{entry.creatorName}</span></>}
+            {entry.creatorName && createdLabel && ' · '}
+            {createdLabel && <>created {createdLabel}</>}
+          </div>
+        )}
+        {(dateLabel || entry.location) && (
+          <div className="text-[12px] text-muted flex items-center gap-3 flex-wrap">
+            {dateLabel && (
+              <span className="flex items-center gap-1">
+                <Calendar size={12} />
+                {dateLabel}
+              </span>
+            )}
+            {entry.location && (
+              <span className="flex items-center gap-1 min-w-0">
+                <MapPin size={12} className="shrink-0" />
+                <span className="truncate">{entry.location}</span>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <ArrowRight size={18} className="text-muted shrink-0" />
+    </button>
+  );
 }

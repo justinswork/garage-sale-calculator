@@ -48,8 +48,19 @@ export default function EventLayout() {
   const saleNumberMap = useMemo(() => buildSaleNumberMap(sales), [sales]);
 
   useEffect(() => {
-    if (event) pushRecentEvent({ id: event.id, name: event.name });
-  }, [event?.id, event?.name]);
+    if (!event || !hosts) return;
+    // Find the creator host (whose device uids contain the event's creator uid)
+    const creator = hosts.find((h) => h.deviceUids?.includes(event.createdByUid));
+    pushRecentEvent({
+      id: event.id,
+      name: event.name,
+      createdAt: event.createdAt?.toMillis?.() || null,
+      creatorName: creator?.name || null,
+      startDate: event.startDate || null,
+      endDate: event.endDate || null,
+      location: event.location || null
+    });
+  }, [event?.id, event?.name, event?.startDate, event?.endDate, event?.location, hosts]);
 
   // Event was deleted server-side (by its creator). Wipe this device's
   // recents + host mapping so it doesn't keep showing on the landing page.
