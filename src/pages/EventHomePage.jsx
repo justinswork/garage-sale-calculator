@@ -12,6 +12,7 @@ import { formatMoney, parseMoney } from '../utils/money.js';
 import { localDayKey, formatDayLabel, formatTime } from '../utils/dates.js';
 import { resolvePerHost, isPending, effectiveTotal, computeSettleUp, applySettlements, getCashAmount } from '../utils/sale.js';
 import { recordSettlement, unrecordSettlement } from '../data/settlements.js';
+import { recordAudit } from '../data/audit.js';
 
 export default function EventHomePage() {
   const { event, hosts, sales, saleNumberMap, settlements, currentHost, uid } = useEvent();
@@ -54,6 +55,13 @@ export default function EventHomePage() {
     setCreating(true);
     try {
       const saleId = await createSale(event.id, { uid, hostId: currentHost.id });
+      recordAudit(event.id, {
+        type: 'transaction.created',
+        summary: `Started a new transaction`,
+        byUid: uid,
+        byHostId: currentHost.id,
+        meta: { saleId }
+      });
       navigate(`/e/${event.id}/sale/${saleId}`);
     } finally {
       setCreating(false);
@@ -189,6 +197,8 @@ export default function EventHomePage() {
               hosts={hosts}
               eventId={event.id}
               disabled={event.status === 'closed'}
+              uid={uid}
+              currentHost={currentHost}
             />
 
             <div className="flex justify-center gap-3 pt-4 text-[13px] text-muted">
@@ -354,6 +364,8 @@ function DaySection({ day, hosts, eventId, hostName, startingCash, defaultOpen, 
           startingCash={startingCash}
           dayCashSales={day.cashTotal}
           disabled={disabled}
+          uid={uid}
+          currentHost={currentHost}
         />
         {filtered.length === 0 && day.sales.length > 0 ? (
           <div className="card p-3 text-center text-[12px] text-muted">
@@ -537,6 +549,13 @@ function DebtRow({ debt, hosts, eventId, saleNumberMap, currentHost, uid, disabl
         paymentMethod,
         byUid: uid
       });
+      recordAudit(eventId, {
+        type: 'settlement.recorded',
+        summary: `${fromHost.name} paid ${toHost.name} ${formatMoney(debt.amount)} via ${paymentMethod === 'cash' ? 'cash' : 'Venmo'}`,
+        byUid: uid,
+        byHostId: currentHost?.id || null,
+        meta: { from: debt.from, to: debt.to, amount: debt.amount, paymentMethod }
+      });
     } finally {
       setBusy(false);
     }
@@ -601,7 +620,7 @@ function DebtRow({ debt, hosts, eventId, saleNumberMap, currentHost, uid, disabl
   );
 }
 
-function PaidSettlements({ settlements, hosts, eventId, disabled }) {
+function PaidSettlements({ settlements, hosts, eventId, disabled, uid, currentHost }) {
   if (!settlements || settlements.length === 0) return null;
   return (
     <details className="card group">
@@ -630,7 +649,16 @@ function PaidSettlements({ settlements, hosts, eventId, disabled }) {
               {!disabled && (
                 <button
                   type="button"
-                  onClick={() => unrecordSettlement(eventId, s.id)}
+                  onClick={async () => {
+                    await unrecordSettlement(eventId, s.id);
+                    recordAudit(eventId, {
+                      type: 'settlement.undone',
+                      summary: `Undid: ${fromHost.name} paid ${toHost.name} ${formatMoney(s.amount)} (${isCash ? 'cash' : 'Venmo'})`,
+                      byUid: uid,
+                      byHostId: currentHost?.id || null,
+                      meta: { from: s.from, to: s.to, amount: s.amount, paymentMethod: s.paymentMethod }
+                    });
+                  }}
                   className="text-muted active:opacity-60 p-1"
                   aria-label="Undo payment"
                 >
@@ -645,7 +673,7 @@ function PaidSettlements({ settlements, hosts, eventId, disabled }) {
   );
 }
 
-function CashStatusInline({ eventId, dayKey, startingCash, dayCashSales, disabled }) {
+function CashStatusInline({ eventId, dayKey, startingCash, dayCashSales, disabled, uid, currentHost }) {
   const [editing, setEditing] = useState(false);
   const [str, setStr] = useState(startingCash != null ? (startingCash / 100).toFixed(2) : '');
 
@@ -655,8 +683,28 @@ function CashStatusInline({ eventId, dayKey, startingCash, dayCashSales, disable
 
   const save = async () => {
     const cents = parseMoney(str);
-    if (cents == null) await clearDailyStartingCash(eventId, dayKey);
-    else await setDailyStartingCash(eventId, dayKey, cents);
+    const dayLabel = formatDayLabel(dayKey);
+    if (cents == null) {
+      await clearDailyStartingCash(eventId, dayKey);
+      if (startingCash != null) {
+        recordAudit(eventId, {
+          type: 'daycash.cleared',
+          summary: `Cleared starting cash for ${dayLabel}`,
+          byUid: uid,
+          byHostId: currentHost?.id || null,
+          meta: { dayKey, previous: startingCash }
+        });
+      }
+    } else if (cents !== startingCash) {
+      await setDailyStartingCash(eventId, dayKey, cents);
+      recordAudit(eventId, {
+        type: 'daycash.set',
+        summary: `Set starting cash for ${dayLabel} to ${formatMoney(cents)}`,
+        byUid: uid,
+        byHostId: currentHost?.id || null,
+        meta: { dayKey, amount: cents, previous: startingCash }
+      });
+    }
     setEditing(false);
   };
 

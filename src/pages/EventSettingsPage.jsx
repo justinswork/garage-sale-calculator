@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle } from 'lucide-react';
+import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2 } from 'lucide-react';
 import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
-import { renameEvent, setEventStatus } from '../data/events.js';
+import { renameEvent, setEventStatus, deleteEvent } from '../data/events.js';
 import { renameHost } from '../data/hosts.js';
+import { recordAudit } from '../data/audit.js';
+import { removeRecentEvent } from '../utils/storage.js';
 
 export default function EventSettingsPage() {
-  const { event, hosts, sales, currentHost, switchHost } = useEvent();
+  const { event, hosts, sales, currentHost, uid, switchHost } = useEvent();
   const navigate = useNavigate();
   const pendingCount = useMemo(
     () => (sales || []).filter((s) => !s.deletedAt && s.status === 'pending-discount').length,
@@ -21,13 +23,32 @@ export default function EventSettingsPage() {
 
   const saveName = async () => {
     if (name.trim() && name !== event.name) {
-      await renameEvent(event.id, name.trim());
+      const newName = name.trim();
+      const oldName = event.name;
+      await renameEvent(event.id, newName);
+      recordAudit(event.id, {
+        type: 'event.renamed',
+        summary: `Renamed event from "${oldName}" to "${newName}"`,
+        byUid: uid,
+        byHostId: currentHost.id,
+        meta: { previous: oldName, current: newName }
+      });
     }
   };
 
   const saveHostName = async (hostId) => {
-    if (hostName.trim()) {
-      await renameHost(event.id, hostId, hostName.trim());
+    const trimmed = hostName.trim();
+    const target = hosts.find((h) => h.id === hostId);
+    if (trimmed && target && trimmed !== target.name) {
+      const oldName = target.name;
+      await renameHost(event.id, hostId, trimmed);
+      recordAudit(event.id, {
+        type: 'host.renamed',
+        summary: `Renamed host "${oldName}" to "${trimmed}"`,
+        byUid: uid,
+        byHostId: currentHost.id,
+        meta: { hostId, previous: oldName, current: trimmed }
+      });
     }
     setEditingHostId(null);
     setHostName('');
@@ -35,7 +56,15 @@ export default function EventSettingsPage() {
 
   const toggleStatus = async () => {
     if (blockedFromClosing) return;
-    await setEventStatus(event.id, event.status === 'open' ? 'closed' : 'open');
+    const newStatus = event.status === 'open' ? 'closed' : 'open';
+    await setEventStatus(event.id, newStatus);
+    recordAudit(event.id, {
+      type: newStatus === 'closed' ? 'event.closed' : 'event.opened',
+      summary: newStatus === 'closed' ? 'Closed the event' : 'Reopened the event',
+      byUid: uid,
+      byHostId: currentHost.id,
+      meta: {}
+    });
   };
 
   const copyLink = async () => {
@@ -49,6 +78,28 @@ export default function EventSettingsPage() {
   const onSwitchHost = () => {
     navigate(`/e/${event.id}`);
     switchHost();
+  };
+
+  const isCreator = event.createdByUid === uid;
+  const [deleting, setDeleting] = useState(false);
+
+  const onDeleteEvent = async () => {
+    if (!isCreator || deleting) return;
+    const ok = confirm(
+      `Permanently delete "${event.name}"?\n\n` +
+      `This deletes all transactions, items, settlements, hosts, and audit history. ` +
+      `Cannot be undone.`
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteEvent(event.id);
+      removeRecentEvent(event.id);
+      navigate('/');
+    } catch (err) {
+      setDeleting(false);
+      alert(err?.message || 'Could not delete the event.');
+    }
   };
 
   return (
@@ -132,6 +183,18 @@ export default function EventSettingsPage() {
           )}
         </section>
 
+        <section className="card p-4 flex flex-col gap-2">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2 text-accent-deep font-semibold text-[14px] active:opacity-60"
+          >
+            <Home size={16} /> Back to my events
+          </button>
+          <div className="text-[12px] text-muted">
+            Returns to the app home, where you can create or open another event.
+          </div>
+        </section>
+
         <section className="card p-4">
           <button onClick={onSwitchHost} className="flex items-center gap-2 text-red-600 font-semibold text-[14px] active:opacity-60">
             <LogOut size={16} /> Switch host on this device
@@ -140,6 +203,21 @@ export default function EventSettingsPage() {
             This forgets which host this device is signed in as. Your transactions stay in place.
           </div>
         </section>
+
+        {isCreator && (
+          <section className="card p-4 border border-red-200 bg-red-50/50">
+            <button
+              onClick={onDeleteEvent}
+              disabled={deleting}
+              className="flex items-center gap-2 text-red-700 font-semibold text-[14px] active:opacity-60 disabled:opacity-50"
+            >
+              <Trash2 size={16} /> {deleting ? 'Deleting…' : 'Delete this event'}
+            </button>
+            <div className="text-[12px] text-red-700/80 pt-2">
+              Removes the event and every transaction, item, settlement, host, and audit entry. Only the creator (you) can do this. Cannot be undone.
+            </div>
+          </section>
+        )}
       </main>
     </div>
   );

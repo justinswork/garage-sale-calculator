@@ -12,7 +12,9 @@ service cloud.firestore {
         && request.resource.data.createdByUid == request.auth.uid
         && request.resource.data.keys().hasAll(['name', 'createdAt', 'createdByUid', 'status']);
       allow read, update: if signedIn();
-      allow delete: if false;
+      // Only the original creator can hard-delete the event (and the
+      // creator-only audit cleanup below mirrors that gate).
+      allow delete: if signedIn() && resource.data.createdByUid == request.auth.uid;
 
       match /hosts/{hostId} {
         allow read, write: if signedIn();
@@ -28,7 +30,11 @@ service cloud.firestore {
 
       match /audit/{logId} {
         allow read, create: if signedIn();
-        allow update, delete: if false;
+        allow update: if false;
+        // Audit is immutable except when the event creator is tearing the
+        // whole event down — at that point the audit history is meaningless.
+        allow delete: if signedIn()
+          && get(/databases/$(database)/documents/events/$(eventId)).data.createdByUid == request.auth.uid;
       }
 
       match /settlements/{settlementId} {

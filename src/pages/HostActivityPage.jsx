@@ -79,10 +79,20 @@ export default function HostActivityPage() {
       if (s.deletedAt) continue;
       if (s.status === 'draft') continue;
       for (const it of s.items || []) {
-        if (it.hostId !== host.id || !it.name?.trim()) continue;
-        const key = `${it.name.trim().toLowerCase()}|${it.unitPrice}`;
+        if (it.hostId !== host.id) continue;
+        const trimmedName = it.name?.trim() || '';
+        const isUntitled = !trimmedName;
+        const key = isUntitled
+          ? `__untitled__|${it.unitPrice}`
+          : `${trimmedName.toLowerCase()}|${it.unitPrice}`;
         if (!itemMap[key]) {
-          itemMap[key] = { name: it.name.trim(), unitPrice: it.unitPrice, qty: 0, total: 0 };
+          itemMap[key] = {
+            name: trimmedName,
+            isUntitled,
+            unitPrice: it.unitPrice,
+            qty: 0,
+            total: 0
+          };
         }
         const q = it.qty || 1;
         itemMap[key].qty += q;
@@ -149,11 +159,13 @@ export default function HostActivityPage() {
             <h3 className="text-[12px] uppercase tracking-wide text-muted px-2">Items sold</h3>
             <div className="card divide-y divide-hairline">
               {data.itemsSold.map((it) => (
-                <div key={`${it.name}|${it.unitPrice}`} className="px-4 py-3 flex items-center justify-between gap-3">
+                <div key={`${it.isUntitled ? '__untitled__' : it.name}|${it.unitPrice}`} className="px-4 py-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-semibold text-[14px] truncate">
                       {it.qty > 1 && <span className="text-muted font-medium">{it.qty} × </span>}
-                      {it.name}
+                      {it.isUntitled ? (
+                        <span className="text-muted italic font-normal">untitled</span>
+                      ) : it.name}
                     </div>
                     {it.qty > 1 && (
                       <div className="text-[11px] text-muted tabular-nums">{formatMoney(it.unitPrice)} each</div>
@@ -227,7 +239,10 @@ function ShareRow({ sale, share, received, eventId, saleNumber, showOwedHints, h
   const Icon = method === 'digital' ? Smartphone : method === 'split' ? Wallet : Banknote;
   const myItems = (sale.items || []).filter((it) => it.hostId === hostId);
   const itemsLabel = myItems
-    .map((it) => ((it.qty || 1) > 1 ? `${it.qty} × ${it.name}` : it.name))
+    .map((it) => {
+      const name = it.name?.trim() || 'untitled';
+      return (it.qty || 1) > 1 ? `${it.qty} × ${name}` : name;
+    })
     .join(', ');
   const truncatedLabel = itemsLabel.length > 48
     ? itemsLabel.slice(0, 47) + '…'

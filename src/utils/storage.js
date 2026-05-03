@@ -49,3 +49,10 @@ export function pushRecentEvent(entry) {
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
   } catch {}
 }
+
+export function removeRecentEvent(eventId) {
+  const list = getRecentEvents().filter((e) => e.id !== eventId);
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {}
+}

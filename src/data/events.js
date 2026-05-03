@@ -2,9 +2,13 @@ import {
   doc,
   setDoc,
   getDoc,
+  getDocs,
   updateDoc,
+  deleteDoc,
   onSnapshot,
-  serverTimestamp
+  serverTimestamp,
+  collection,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import { shortId } from '../utils/id.js';
@@ -51,4 +55,27 @@ export async function clearDailyStartingCash(eventId, dayKey) {
   await updateDoc(doc(db, 'events', eventId), {
     [`dailyStartingCash.${dayKey}`]: null
   });
+}
+
+// Hard delete an event and ALL its subcollection docs. Only the event's
+// original creator is allowed by Firestore rules. Used for cleaning up
+// test events; not recoverable.
+export async function deleteEvent(eventId) {
+  const subcollections = ['hosts', 'sales', 'settlements', 'quickAddItems', 'audit'];
+  for (const sub of subcollections) {
+    const colRef = collection(db, 'events', eventId, sub);
+    const snap = await getDocs(colRef);
+    if (snap.empty) continue;
+    // Firestore caps writeBatch at 500 ops, so chunk if needed.
+    const chunks = [];
+    for (let i = 0; i < snap.docs.length; i += 450) {
+      chunks.push(snap.docs.slice(i, i + 450));
+    }
+    for (const chunk of chunks) {
+      const batch = writeBatch(db);
+      for (const d of chunk) batch.delete(d.ref);
+      await batch.commit();
+    }
+  }
+  await deleteDoc(doc(db, 'events', eventId));
 }

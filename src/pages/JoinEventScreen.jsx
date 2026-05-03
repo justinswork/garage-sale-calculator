@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Users, Plus } from 'lucide-react';
 import { addHost } from '../data/hosts.js';
+import { recordAudit } from '../data/audit.js';
 
 export default function JoinEventScreen({ event, hosts, uid, onPicked }) {
   const [busy, setBusy] = useState(false);
@@ -29,6 +30,13 @@ export default function JoinEventScreen({ event, hosts, uid, onPicked }) {
     setError('');
     try {
       const id = await addHost(event.id, { name, uid });
+      recordAudit(event.id, {
+        type: 'host.added',
+        summary: `Added ${name} as a host`,
+        byUid: uid,
+        byHostId: id,
+        meta: { hostId: id, name }
+      });
       await onPicked(id);
     } catch (err) {
       setError(err.message || 'Could not add host');

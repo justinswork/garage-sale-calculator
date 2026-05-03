@@ -8,6 +8,7 @@ import { watchEvent } from '../data/events.js';
 import { watchHosts, attachDeviceToHost } from '../data/hosts.js';
 import { watchSales } from '../data/sales.js';
 import { watchSettlements } from '../data/settlements.js';
+import { watchAudit } from '../data/audit.js';
 import { buildSaleNumberMap } from '../utils/sale.js';
 import {
   getDeviceHostId,
@@ -24,6 +25,7 @@ export default function EventLayout() {
   const [hosts, setHosts] = useState(undefined);
   const [sales, setSales] = useState([]);
   const [settlements, setSettlements] = useState([]);
+  const [audit, setAudit] = useState([]);
   const [hostId, setHostId] = useState(() => getDeviceHostId(eventId));
 
   useEffect(() => {
@@ -32,11 +34,13 @@ export default function EventLayout() {
     const unsubH = watchHosts(eventId, (list) => setHosts(list));
     const unsubS = watchSales(eventId, (list) => setSales(list));
     const unsubT = watchSettlements(eventId, (list) => setSettlements(list));
+    const unsubA = watchAudit(eventId, (list) => setAudit(list));
     return () => {
       unsubE();
       unsubH();
       unsubS();
       unsubT();
+      unsubA();
     };
   }, [eventId]);
 
@@ -87,7 +91,7 @@ export default function EventLayout() {
   };
 
   return (
-    <EventProvider value={{ event, hosts, sales, saleNumberMap, settlements, currentHost, uid: user.uid, switchHost }}>
+    <EventProvider value={{ event, hosts, sales, saleNumberMap, settlements, audit, currentHost, uid: user.uid, switchHost }}>
       <Outlet />
     </EventProvider>
   );

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Trash2, Plus, X, Check, AlertTriangle, RotateCcw, Sparkles,
-  Pencil, MessageSquarePlus, Tag, Banknote, Smartphone, Lock, ChevronLeft, ArrowRight
+  Pencil, MessageSquarePlus, Tag, Banknote, Smartphone, Wallet, Lock, ChevronLeft, ChevronDown, ArrowRight
 } from 'lucide-react';
 import { hostColor } from '../utils/colors.js';
 import { Link } from 'react-router-dom';
@@ -14,6 +14,7 @@ import {
   softDeleteSale, restoreSale, hardDeleteDraft
 } from '../data/sales.js';
 import { watchQuickAdds, upsertQuickAdd, touchQuickAdd, removeQuickAdd } from '../data/quickAdd.js';
+import { recordAudit } from '../data/audit.js';
 import HostPill from '../components/HostPill.jsx';
 import MoneyInput from '../components/MoneyInput.jsx';
 import { formatMoney, parseMoney } from '../utils/money.js';
@@ -41,9 +42,6 @@ export default function SalePage() {
   // progressive-disclosure toggles
   const [showOverride, setShowOverride] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
-
-  // item edit sheet: null | 'new' | <itemId>
-  const [editingItemId, setEditingItemId] = useState(null);
 
   // 2-step flow: rapid item entry then payment
   const [stage, setStage] = useState('items'); // 'items' | 'payment'
@@ -136,7 +134,17 @@ export default function SalePage() {
   const isPendingState = sale.status === 'pending-discount';
   const isCompleted = sale.status === 'completed';
   const eventClosed = event.status === 'closed';
-  const editable = !isDeleted && (isDraft || isPendingState) && !eventClosed;
+  // Drafts and pending sales use the 2-stage flow with an action bar.
+  // Completed sales are still editable (hosts can fill in item details, fix
+  // names/qty, adjust cash, etc. after the rush) — but show all sections at
+  // once with no Continue/Complete buttons. Deleted or closed = locked.
+  const isInProgress = isDraft || isPendingState;
+  const editable = !isDeleted && !eventClosed;
+  // Money-affecting fields (price, qty, override, cash received, payment
+  // method, recipient, allocation) are only editable while the transaction is
+  // still in progress. Completed transactions allow only metadata edits
+  // (item name, host, notes).
+  const moneyEditable = editable && isInProgress;
   const willBePending = overrideActive && discount > 0 && !allocation;
   // Rapid-entry items intentionally have no name — only host + price + qty are required.
   const itemsValid = items.length > 0 && items.every((it) =>
@@ -154,36 +162,47 @@ export default function SalePage() {
   const cashMissing = isPureCash && cashReceived == null;
   const recipientMissing = (isPureDigital || isSplit) && !digitalRecipient;
   const canSubmit = itemsValid && !cashShort && !splitMismatch;
-
-  // -------- item edit sheet helpers --------
-  const editingItem = editingItemId == null ? null
-    : editingItemId === 'new'
-      ? { id: shortId(6), name: '', qty: 1, unitPrice: 0, hostId: currentHost.id, saveForQuickAdd: false, _isNew: true }
-      : items.find((it) => it.id === editingItemId);
-
-  const persistItems = (list) => {
-    updateSale(eventId, saleId, {
-      items: list,
-      itemsSubtotal: itemsSubtotal(list)
-    }).catch(() => {});
+  // For completed transactions, hold edits in local state and only persist on
+  // explicit Save Changes (so Cancel can simply discard local state). Drafts
+  // and pending sales still autosave on blur for offline-resilience during
+  // the customer rush.
+  const deferredSave = editable && !isInProgress;
+  const persistSale = (data) => {
+    if (deferredSave) return;
+    updateSale(eventId, saleId, data).catch(() => {});
   };
 
-  const saveItem = (item) => {
-    const clean = { ...item };
-    delete clean._isNew;
-    let next;
-    if (editingItemId === 'new') next = [...items, clean];
-    else next = items.map((it) => (it.id === clean.id ? clean : it));
-    setItems(next);
-    persistItems(next);
-    setEditingItemId(null);
+  const persistItems = (list) => {
+    persistSale({
+      items: list,
+      itemsSubtotal: itemsSubtotal(list)
+    });
   };
 
   const deleteItem = (id) => {
+    const removed = items.find((it) => it.id === id);
     const next = items.filter((it) => it.id !== id);
     setItems(next);
     persistItems(next);
-    setEditingItemId(null);
+    if (removed && isInProgress) {
+      const num = saleNumberMap?.[saleId];
+      const removedHost = hosts.find((h) => h.id === removed.hostId);
+      const desc = removed.name?.trim() || 'untitled';
+      recordAudit(eventId, {
+        type: 'transaction.item.removed',
+        summary: `Removed ${formatMoney((removed.qty || 1) * (removed.unitPrice || 0))} ${desc}${removedHost ? ` (${removedHost.name})` : ''} from transaction${num ? ` #${num}` : ''}`,
+        byUid: uid,
+        byHostId: currentHost.id,
+        meta: { saleId, item: removed }
+      });
+    }
+  };
+
+  // Apply a partial update to a single item and persist. Used by inline edit.
+  const editItem = (id, patch) => {
+    const next = items.map((it) => (it.id === id ? { ...it, ...patch } : it));
+    setItems(next);
+    persistItems(next);
   };
 
   const addQuickAdd = (qa) => {
@@ -196,6 +215,17 @@ export default function SalePage() {
     setItems(next);
     persistItems(next);
     touchQuickAdd(eventId, qa.id).catch(() => {});
+    if (isInProgress) {
+      const num = saleNumberMap?.[saleId];
+      const itemHost = hosts.find((h) => h.id === it.hostId);
+      recordAudit(eventId, {
+        type: 'transaction.item.added',
+        summary: `Added ${qa.name} ${formatMoney(qa.defaultPrice)}${itemHost ? ` (${itemHost.name})` : ''} to transaction${num ? ` #${num}` : ''} from quick-add`,
+        byUid: uid,
+        byHostId: currentHost.id,
+        meta: { saleId, item: it, fromQuickAdd: qa.id }
+      });
+    }
   };
 
   const handleRemoveQuickAdd = async (qa) => {
@@ -221,85 +251,184 @@ export default function SalePage() {
     persistItems(next);
     setRapidPriceStr('');
     setTimeout(() => rapidPriceRef.current?.focus(), 0);
+    const num = saleNumberMap?.[saleId];
+    const itemHost = hosts.find((h) => h.id === hostId);
+    recordAudit(eventId, {
+      type: 'transaction.item.added',
+      summary: `Added ${formatMoney(price)}${itemHost ? ` (${itemHost.name})` : ''} to transaction${num ? ` #${num}` : ''}`,
+      byUid: uid,
+      byHostId: currentHost.id,
+      meta: { saleId, item: it }
+    });
   };
 
   const persistOverride = () => {
     const cents = overrideStr.trim() ? parseMoney(overrideStr) : null;
-    updateSale(eventId, saleId, {
+    persistSale({
       overrideTotal: cents,
       discountAllocation: cents == null ? null : sale.discountAllocation
-    }).catch(() => {});
+    });
   };
 
   const persistCash = () => {
     const cents = cashStr.trim() ? parseMoney(cashStr) : null;
-    updateSale(eventId, saleId, {
+    persistSale({
       cashReceived: cents,
       changeGiven: cents != null ? cents - finalTotal : null
-    }).catch(() => {});
+    });
   };
 
-  const persistNotes = () => updateSale(eventId, saleId, { notes }).catch(() => {});
-  const setAllocation = (alloc) => updateSale(eventId, saleId, { discountAllocation: alloc }).catch(() => {});
+  const persistNotes = () => persistSale({ notes });
+  const setAllocation = (alloc) => persistSale({ discountAllocation: alloc });
 
   const switchPaymentMethod = (method) => {
     setPaymentMethod(method);
     if (method === 'cash') {
       setDigitalRecipient('');
       setSplitDigitalStr('');
-      updateSale(eventId, saleId, {
+      persistSale({
         paymentMethod: 'cash',
         digitalRecipientHostId: null,
         cashAmount: null,
         digitalAmount: null
-      }).catch(() => {});
+      });
     } else if (method === 'digital') {
       const r = digitalRecipient || currentHost.id;
       setDigitalRecipient(r);
       setCashStr('');
       setSplitDigitalStr('');
-      updateSale(eventId, saleId, {
+      persistSale({
         paymentMethod: 'digital',
         digitalRecipientHostId: r,
         cashReceived: null,
         changeGiven: null,
         cashAmount: null,
         digitalAmount: null
-      }).catch(() => {});
+      });
     } else { // split
       const r = digitalRecipient || currentHost.id;
       setDigitalRecipient(r);
       setCashStr('');
       setSplitDigitalStr('');
-      updateSale(eventId, saleId, {
+      persistSale({
         paymentMethod: 'split',
         digitalRecipientHostId: r,
         cashReceived: null,
         changeGiven: null,
         cashAmount: null,
         digitalAmount: null
-      }).catch(() => {});
+      });
     }
   };
 
   const persistRecipient = (id) => {
     setDigitalRecipient(id);
-    updateSale(eventId, saleId, { digitalRecipientHostId: id }).catch(() => {});
+    persistSale({ digitalRecipientHostId: id });
   };
 
   const persistSplitAmounts = () => {
     const cashCents = cashStr.trim() ? parseMoney(cashStr) : null;
     const digCents = splitDigitalStr.trim() ? parseMoney(splitDigitalStr) : null;
-    updateSale(eventId, saleId, {
+    persistSale({
       cashAmount: cashCents,
       digitalAmount: digCents
-    }).catch(() => {});
+    });
   };
 
   const clearOverride = () => {
     setOverrideStr('');
     setShowOverride(false);
-    updateSale(eventId, saleId, { overrideTotal: null, discountAllocation: null }).catch(() => {});
+    persistSale({ overrideTotal: null, discountAllocation: null });
+  };
+
+  // -------- Save / Cancel for completed transactions --------
+  const saveChanges = async () => {
+    // For completed transactions, item names + hosts and notes can change.
+    // Persist everything in one shot then navigate back.
+    await updateSale(eventId, saleId, {
+      items,
+      itemsSubtotal: itemsSubtotal(items),
+      notes
+    }).catch(() => {});
+    // Build a structured per-field diff so the audit log can show "Reassigned
+    // 'Books' from Rachel to Justin" instead of a generic "item hosts changed".
+    const changes = [];
+    const original = sale.items || [];
+    const hostNameOf = (id) => hosts.find((h) => h.id === id)?.name || 'Unknown';
+    const labelOf = (it) => (it.name?.trim() || `untitled ${formatMoney((it.qty || 1) * (it.unitPrice || 0))} item`);
+
+    for (const it of items) {
+      const prev = original.find((p) => p.id === it.id);
+      if (!prev) continue;
+      if ((prev.name || '') !== (it.name || '')) {
+        const from = prev.name?.trim() || `untitled ${formatMoney((prev.qty || 1) * (prev.unitPrice || 0))} item`;
+        const to = it.name?.trim() || `untitled ${formatMoney((it.qty || 1) * (it.unitPrice || 0))} item`;
+        changes.push({
+          kind: 'item.name.changed',
+          itemId: it.id,
+          from: prev.name || '',
+          to: it.name || '',
+          text: `Renamed "${from}" to "${to}"`
+        });
+      }
+      if ((prev.hostId || '') !== (it.hostId || '')) {
+        changes.push({
+          kind: 'item.host.changed',
+          itemId: it.id,
+          itemName: it.name || '',
+          itemSubtotal: (it.qty || 1) * (it.unitPrice || 0),
+          from: prev.hostId,
+          to: it.hostId,
+          text: `Reassigned "${labelOf(it)}" from ${hostNameOf(prev.hostId)} to ${hostNameOf(it.hostId)}`
+        });
+      }
+      if ((prev.saveForQuickAdd ?? false) !== (it.saveForQuickAdd ?? false)) {
+        changes.push({
+          kind: 'item.savequickadd.changed',
+          itemId: it.id,
+          itemName: it.name || '',
+          itemSubtotal: (it.qty || 1) * (it.unitPrice || 0),
+          from: !!prev.saveForQuickAdd,
+          to: !!it.saveForQuickAdd,
+          text: it.saveForQuickAdd
+            ? `Marked "${labelOf(it)}" to save for quick-add`
+            : `Unmarked "${labelOf(it)}" from save for quick-add`
+        });
+      }
+    }
+    if ((sale.notes || '') !== (notes || '')) {
+      changes.push({
+        kind: 'notes.changed',
+        from: sale.notes || '',
+        to: notes || '',
+        text: (sale.notes || '').trim() === ''
+          ? 'Added a note'
+          : (notes || '').trim() === ''
+            ? 'Cleared the note'
+            : 'Updated the note'
+      });
+    }
+
+    if (changes.length > 0) {
+      const num = saleNumberMap?.[saleId];
+      const prefix = `Transaction${num ? ` #${num}` : ''}`;
+      const summary = changes.length === 1
+        ? `${prefix}: ${changes[0].text}`
+        : `${prefix}: ${changes.length} edits`;
+      recordAudit(eventId, {
+        type: 'transaction.edited',
+        summary,
+        byUid: uid,
+        byHostId: currentHost.id,
+        meta: { saleId, changes }
+      });
+    }
+    navigate(`/e/${eventId}`);
+  };
+
+  const cancelChanges = () => {
+    // Local state goes away on unmount. Firestore was never touched (deferred).
+    navigate(`/e/${eventId}`);
   };
 
   // -------- top-level actions --------
@@ -363,22 +492,84 @@ export default function SalePage() {
         }
       }
     }
+    // Audit if this is a status transition. Going from draft → completed is
+    // the canonical "transaction completed" event. Going from pending → completed
+    // means the discount was resolved.
+    const wasStatus = sale.status;
+    const num = saleNumberMap?.[saleId];
+    if (status === 'completed' && wasStatus !== 'completed') {
+      let summary = `Completed transaction${num ? ` #${num}` : ''} — ${formatMoney(finalTot)}`;
+      if (paymentMethod === 'cash') summary += ' (cash)';
+      else if (paymentMethod === 'digital') {
+        const recipientHost = hosts.find((h) => h.id === recipient);
+        summary += ` (Venmo${recipientHost ? ' to ' + recipientHost.name : ''})`;
+      } else if (paymentMethod === 'split') {
+        const recipientHost = hosts.find((h) => h.id === recipient);
+        summary += ` (split: ${formatMoney(cashAmt)} cash + ${formatMoney(digAmt)} Venmo${recipientHost ? ' to ' + recipientHost.name : ''})`;
+      }
+      recordAudit(eventId, {
+        type: 'transaction.completed',
+        summary,
+        byUid: uid,
+        byHostId: currentHost.id,
+        meta: { saleId, total: finalTot, paymentMethod, cashAmount: cashAmt, digitalAmount: digAmt, recipient, fromStatus: wasStatus }
+      });
+    } else if (status === 'pending-discount' && wasStatus !== 'pending-discount') {
+      recordAudit(eventId, {
+        type: 'transaction.pending',
+        summary: `Saved transaction${num ? ` #${num}` : ''} as pending — ${formatMoney(finalTot)}`,
+        byUid: uid,
+        byHostId: currentHost.id,
+        meta: { saleId, total: finalTot, fromStatus: wasStatus }
+      });
+    }
     navigate(`/e/${eventId}`);
   };
 
   const discardDraft = async () => {
     if (!confirm('Discard this draft transaction?')) return;
     await hardDeleteDraft(eventId, saleId);
+    recordAudit(eventId, {
+      type: 'transaction.draft.discarded',
+      summary: `Discarded a draft transaction`,
+      byUid: uid,
+      byHostId: currentHost.id,
+      meta: { saleId }
+    });
     navigate(`/e/${eventId}`);
   };
 
   const remove = async () => {
     if (!confirm('Delete this transaction? Totals will be updated. You can restore it from the audit log.')) return;
     await softDeleteSale(eventId, saleId, { hostId: currentHost.id });
+    const num = saleNumberMap?.[saleId];
+    recordAudit(eventId, {
+      type: 'transaction.deleted',
+      summary: `Deleted transaction${num ? ` #${num}` : ''} — ${formatMoney(effectiveTotalLocal())}`,
+      byUid: uid,
+      byHostId: currentHost.id,
+      meta: { saleId, total: effectiveTotalLocal() }
+    });
     navigate(`/e/${eventId}`);
   };
 
-  const restore = async () => restoreSale(eventId, saleId);
+  const restore = async () => {
+    await restoreSale(eventId, saleId);
+    const num = saleNumberMap?.[saleId];
+    recordAudit(eventId, {
+      type: 'transaction.restored',
+      summary: `Restored transaction${num ? ` #${num}` : ''}`,
+      byUid: uid,
+      byHostId: currentHost.id,
+      meta: { saleId }
+    });
+  };
+
+  // local helper for the deletion summary
+  function effectiveTotalLocal() {
+    if (sale.overrideTotal != null) return sale.overrideTotal;
+    return itemsSubtotal(sale.items || []);
+  }
 
   // -------- render --------
   return (
@@ -425,9 +616,9 @@ export default function SalePage() {
         )}
 
         {/* ============ STAGE 1: RAPID ITEM ENTRY ============ */}
-        {stage === 'items' && (
+        {(isInProgress ? stage === 'items' : true) && (
           <>
-            {editable && (
+            {editable && isInProgress && (
               <RapidEntryCard
                 priceStr={rapidPriceStr}
                 onPriceChange={setRapidPriceStr}
@@ -455,8 +646,10 @@ export default function SalePage() {
                       item={it}
                       host={hosts.find((h) => h.id === it.hostId)}
                       hosts={hosts}
-                      onTap={editable ? () => setEditingItemId(it.id) : undefined}
-                      onRemove={editable ? () => deleteItem(it.id) : undefined}
+                      editable={editable}
+                      restricted={editable && !isInProgress}
+                      onUpdate={(patch) => editItem(it.id, patch)}
+                      onRemove={editable && isInProgress ? () => deleteItem(it.id) : undefined}
                     />
                   ))}
                 </div>
@@ -465,15 +658,6 @@ export default function SalePage() {
               !editable && (
                 <div className="card p-6 text-center text-muted text-[14px]">No items.</div>
               )
-            )}
-
-            {editable && (
-              <button
-                onClick={() => setEditingItemId('new')}
-                className="self-center text-accent text-[13px] font-semibold active:opacity-60 px-4 py-2"
-              >
-                + Add detailed item (with name, qty)
-              </button>
             )}
 
             {editable && quickAdds.length > 0 && (
@@ -488,18 +672,20 @@ export default function SalePage() {
         )}
 
         {/* ============ STAGE 2: PAYMENT ============ */}
-        {stage === 'payment' && items.length > 0 && (
+        {(isInProgress ? stage === 'payment' : true) && items.length > 0 && (
           <ItemsByHostSummary
             items={items}
             hosts={hosts}
             currentHost={currentHost}
-            onTapItem={editable ? (id) => setEditingItemId(id) : undefined}
-            onRemoveItem={editable ? deleteItem : undefined}
+            editable={editable}
+            restricted={editable && !isInProgress}
+            onUpdateItem={editable ? editItem : undefined}
+            onRemoveItem={editable && isInProgress ? deleteItem : undefined}
           />
         )}
 
         {/* ============ TOTAL + CASH ============ */}
-        {stage === 'payment' && items.length > 0 && (
+        {(isInProgress ? stage === 'payment' : true) && items.length > 0 && (
           <section className="card p-5 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <span className="text-muted text-[14px]">Customer pays</span>
@@ -517,11 +703,11 @@ export default function SalePage() {
                       value={overrideStr}
                       onChange={setOverrideStr}
                       onBlur={persistOverride}
-                      disabled={!editable}
+                      disabled={!moneyEditable}
                       placeholder="—"
                       className="w-28 text-right rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent tabular-nums disabled:opacity-60"
                     />
-                    {editable && (
+                    {moneyEditable && (
                       <button onClick={clearOverride} className="text-muted active:opacity-50 p-1" aria-label="Clear negotiated price">
                         <X size={16} />
                       </button>
@@ -537,7 +723,7 @@ export default function SalePage() {
                 )}
               </div>
             ) : (
-              editable && (
+              moneyEditable && (
                 <button
                   onClick={handleOpenNegotiate}
                   className="text-accent font-semibold text-[13px] self-start active:opacity-60"
@@ -550,23 +736,26 @@ export default function SalePage() {
             {/* Payment method toggle */}
             <div className="border-t border-hairline pt-4 grid grid-cols-3 gap-2">
               <PaymentToggle
+                method="cash"
                 active={isPureCash}
-                disabled={!editable}
+                disabled={!moneyEditable}
                 icon={<Banknote size={16} />}
                 label="Cash"
                 onClick={() => switchPaymentMethod('cash')}
               />
               <PaymentToggle
+                method="digital"
                 active={isPureDigital}
-                disabled={!editable}
+                disabled={!moneyEditable}
                 icon={<Smartphone size={16} />}
                 label="Venmo"
                 onClick={() => switchPaymentMethod('digital')}
               />
               <PaymentToggle
+                method="split"
                 active={isSplit}
-                disabled={!editable}
-                icon={<Banknote size={16} />}
+                disabled={!moneyEditable}
+                icon={<Wallet size={16} />}
                 label="Split"
                 onClick={() => switchPaymentMethod('split')}
               />
@@ -580,7 +769,7 @@ export default function SalePage() {
                     value={cashStr}
                     onChange={setCashStr}
                     onBlur={persistCash}
-                    disabled={!editable}
+                    disabled={!moneyEditable}
                     placeholder="$0.00"
                     className="w-32 text-right rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent tabular-nums text-[18px] font-semibold disabled:opacity-60"
                   />
@@ -604,7 +793,7 @@ export default function SalePage() {
                   className="w-44 rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent disabled:opacity-60 text-[14px]"
                   value={digitalRecipient}
                   onChange={(e) => persistRecipient(e.target.value)}
-                  disabled={!editable}
+                  disabled={!moneyEditable}
                 >
                   <option value="" disabled>Pick recipient</option>
                   {hosts.map((h) => (
@@ -624,7 +813,7 @@ export default function SalePage() {
                     value={cashStr}
                     onChange={setCashStr}
                     onBlur={persistSplitAmounts}
-                    disabled={!editable}
+                    disabled={!moneyEditable}
                     placeholder="$0.00"
                     className="w-28 text-right rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent tabular-nums disabled:opacity-60"
                   />
@@ -635,7 +824,7 @@ export default function SalePage() {
                     value={splitDigitalStr}
                     onChange={setSplitDigitalStr}
                     onBlur={persistSplitAmounts}
-                    disabled={!editable}
+                    disabled={!moneyEditable}
                     placeholder="$0.00"
                     className="w-28 text-right rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent tabular-nums disabled:opacity-60"
                   />
@@ -646,7 +835,7 @@ export default function SalePage() {
                     className="w-44 rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent disabled:opacity-60 text-[14px]"
                     value={digitalRecipient}
                     onChange={(e) => persistRecipient(e.target.value)}
-                    disabled={!editable}
+                    disabled={!moneyEditable}
                   >
                     <option value="" disabled>Pick recipient</option>
                     {hosts.map((h) => (
@@ -672,7 +861,7 @@ export default function SalePage() {
         )}
 
         {/* ============ DISCOUNT ALLOCATION ============ */}
-        {stage === 'payment' && overrideActive && discount > 0 && editable && (
+        {(isInProgress ? stage === 'payment' : true) && overrideActive && discount > 0 && moneyEditable && (
           <section className="flex flex-col gap-2">
             <h3 className="text-[14px] font-semibold px-2">
               How should the {formatMoney(discount)} discount be split?
@@ -696,7 +885,7 @@ export default function SalePage() {
 
         {/* ============ PER-HOST BREAKDOWN ============ */}
         {/* Only shown when relevant — i.e. when there's a discount that affects the split */}
-        {stage === 'payment' && items.length > 0 && overrideActive && discount > 0 && (
+        {(isInProgress ? stage === 'payment' : true) && items.length > 0 && overrideActive && discount > 0 && (
           <section className="card p-4 flex flex-col gap-2">
             <h3 className="text-[12px] uppercase tracking-wide text-muted">Each host gets</h3>
             {hosts.map((h) => {
@@ -717,7 +906,7 @@ export default function SalePage() {
         )}
 
         {/* ============ NOTES ============ */}
-        {stage === 'payment' && items.length > 0 && (
+        {(isInProgress ? stage === 'payment' : true) && items.length > 0 && (
           showNotes || notes ? (
             <section className="flex flex-col gap-1">
               <h3 className="text-[12px] uppercase tracking-wide text-muted px-2">Note</h3>
@@ -743,15 +932,15 @@ export default function SalePage() {
           )
         )}
 
-        {stage === 'payment' && enteredByHost && (
+        {(isInProgress ? stage === 'payment' : true) && enteredByHost && (
           <div className="text-[11px] text-muted text-center pt-2">
             Entered by {enteredByHost.name}
           </div>
         )}
       </main>
 
-      {/* ============ ACTION BAR ============ */}
-      {editable && stage === 'items' && (
+      {/* ============ ACTION BAR (only during in-progress entry/resolution) ============ */}
+      {editable && isInProgress && stage === 'items' && (
         <div
           className="fixed bottom-0 left-0 right-0 px-4 pt-3 bg-white/95 backdrop-blur-xl border-t border-hairline flex gap-2"
           style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
@@ -769,7 +958,7 @@ export default function SalePage() {
         </div>
       )}
 
-      {editable && stage === 'payment' && (
+      {editable && isInProgress && stage === 'payment' && (
         <div
           className="fixed bottom-0 left-0 right-0 px-4 pt-3 bg-white/95 backdrop-blur-xl border-t border-hairline flex gap-2"
           style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
@@ -793,17 +982,19 @@ export default function SalePage() {
         </div>
       )}
 
-      {/* ============ ITEM EDIT SHEET ============ */}
-      {editingItem && (
-        <ItemEditSheet
-          item={editingItem}
-          hosts={hosts}
-          isNew={editingItem._isNew}
-          onSave={saveItem}
-          onDelete={deleteItem}
-          onClose={() => setEditingItemId(null)}
-        />
+      {/* Save / Cancel for completed (editable but not in-progress) */}
+      {deferredSave && (
+        <div
+          className="fixed bottom-0 left-0 right-0 px-4 pt-3 bg-white/95 backdrop-blur-xl border-t border-hairline flex gap-2"
+          style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
+        >
+          <button onClick={cancelChanges} className="btn-secondary flex-1">Cancel</button>
+          <button onClick={saveChanges} className="btn-primary flex-1 flex items-center justify-center gap-1">
+            <Check size={18} /> Save changes
+          </button>
+        </div>
       )}
+
     </div>
   );
 }
@@ -893,7 +1084,7 @@ function RapidHostButton({ host, hosts, isYou, disabled, onClick }) {
 // ============================================================
 // ITEMS BY HOST SUMMARY (stage 2: grouped review)
 // ============================================================
-function ItemsByHostSummary({ items, hosts, currentHost, onTapItem, onRemoveItem }) {
+function ItemsByHostSummary({ items, hosts, currentHost, editable, restricted, onUpdateItem, onRemoveItem }) {
   // Group items by hostId, preserving host order from the hosts list.
   const byHost = hosts
     .map((h) => ({
@@ -926,7 +1117,10 @@ function ItemsByHostSummary({ items, hosts, currentHost, onTapItem, onRemoveItem
               <CompactItemRow
                 key={it.id}
                 item={it}
-                onTap={onTapItem ? () => onTapItem(it.id) : undefined}
+                hosts={hosts}
+                editable={editable}
+                restricted={restricted}
+                onUpdate={onUpdateItem ? (patch) => onUpdateItem(it.id, patch) : undefined}
                 onRemove={onRemoveItem ? () => onRemoveItem(it.id) : undefined}
               />
             ))}
@@ -942,36 +1136,53 @@ function ItemsByHostSummary({ items, hosts, currentHost, onTapItem, onRemoveItem
   );
 }
 
-function CompactItemRow({ item, onTap, onRemove }) {
+function CompactItemRow({ item, hosts, editable, restricted, onUpdate, onRemove }) {
+  const [expanded, setExpanded] = useState(false);
   const subtotal = (item.qty || 0) * (item.unitPrice || 0);
   const hasName = !!item.name?.trim();
+
   return (
-    <div className="flex items-center gap-2 text-[13px]">
-      <button
-        type="button"
-        onClick={onTap}
-        disabled={!onTap}
-        className="flex-1 min-w-0 flex items-center gap-2 text-left active:opacity-60 disabled:active:opacity-100"
-      >
-        <span className="font-bold tabular-nums shrink-0 w-16">{formatMoney(subtotal)}</span>
-        <span className="text-muted truncate flex-1 min-w-0">
-          {hasName ? (
-            (item.qty || 1) > 1 ? `${item.qty} × ${item.name}` : item.name
-          ) : (
-            <span className="italic">untitled</span>
-          )}
-        </span>
-        {onTap && !onRemove && <Pencil size={11} className="text-muted shrink-0" />}
-      </button>
-      {onRemove && (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-2 text-[13px]">
         <button
           type="button"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
-          className="p-1 text-muted active:opacity-60 shrink-0"
-          aria-label="Remove item"
+          onClick={editable ? () => setExpanded((v) => !v) : undefined}
+          disabled={!editable}
+          className="flex-1 min-w-0 flex items-center gap-2 text-left active:opacity-60 disabled:active:opacity-100"
         >
-          <X size={14} />
+          <span className="font-bold tabular-nums shrink-0 w-16">{formatMoney(subtotal)}</span>
+          <span className="text-muted truncate flex-1 min-w-0">
+            {hasName ? (
+              (item.qty || 1) > 1 ? `${item.qty} × ${item.name}` : item.name
+            ) : (
+              <span className="italic">untitled</span>
+            )}
+          </span>
+          {editable && (
+            <ChevronDown size={12} className={`text-muted shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          )}
         </button>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
+            className="p-1 text-muted active:opacity-60 shrink-0"
+            aria-label="Remove item"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      {expanded && editable && onUpdate && hosts && (
+        <div className="mt-2 -mx-3 -mb-3">
+          <InlineItemEditForm
+            item={item}
+            hosts={hosts}
+            onUpdate={onUpdate}
+            onRemove={onRemove}
+            restricted={restricted}
+          />
+        </div>
       )}
     </div>
   );
@@ -980,38 +1191,53 @@ function CompactItemRow({ item, onTap, onRemove }) {
 // ============================================================
 // ITEM SUMMARY ROW (read-only, tap to edit)
 // ============================================================
-function ItemSummaryRow({ item, host, hosts, onTap, onRemove }) {
+function ItemSummaryRow({ item, host, hosts, editable, restricted, onUpdate, onRemove }) {
+  const [expanded, setExpanded] = useState(false);
   const subtotal = (item.qty || 0) * (item.unitPrice || 0);
   const hasName = !!item.name?.trim();
+
   return (
-    <div className="card p-3 flex items-center gap-2">
-      <button
-        type="button"
-        onClick={onTap}
-        disabled={!onTap}
-        className="flex-1 min-w-0 flex items-center gap-2 text-left active:opacity-70 disabled:active:opacity-100"
-      >
-        <span className="font-bold tabular-nums text-[17px] shrink-0">{formatMoney(subtotal)}</span>
-        {host && <HostPill host={host} hosts={hosts} size="sm" />}
-        <span className="text-[13px] text-muted truncate flex-1 min-w-0">
-          {hasName ? (
-            (item.qty || 1) > 1 ? `${item.qty} × ${item.name}` : item.name
-          ) : (
-            <span className="italic">untitled</span>
-          )}
-          {item.saveForQuickAdd && <span className="ml-2 text-amber-600">★</span>}
-        </span>
-        {onTap && !onRemove && <Pencil size={12} className="text-muted shrink-0" />}
-      </button>
-      {onRemove && (
+    <div className="card overflow-hidden">
+      <div className="flex items-center gap-2 p-3">
         <button
           type="button"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
-          className="p-2 text-muted active:opacity-60 shrink-0"
-          aria-label="Remove item"
+          onClick={editable ? () => setExpanded((v) => !v) : undefined}
+          disabled={!editable}
+          className="flex-1 min-w-0 flex items-center gap-2 text-left active:opacity-70 disabled:active:opacity-100"
         >
-          <X size={18} />
+          <span className="font-bold tabular-nums text-[17px] shrink-0">{formatMoney(subtotal)}</span>
+          {host && <HostPill host={host} hosts={hosts} size="sm" />}
+          <span className="text-[13px] text-muted truncate flex-1 min-w-0">
+            {hasName ? (
+              (item.qty || 1) > 1 ? `${item.qty} × ${item.name}` : item.name
+            ) : (
+              <span className="italic">untitled</span>
+            )}
+            {item.saveForQuickAdd && <span className="ml-2 text-amber-600">★</span>}
+          </span>
+          {editable && (
+            <ChevronDown size={14} className={`text-muted shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          )}
         </button>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
+            className="p-2 text-muted active:opacity-60 shrink-0"
+            aria-label="Remove item"
+          >
+            <X size={18} />
+          </button>
+        )}
+      </div>
+      {expanded && editable && onUpdate && (
+        <InlineItemEditForm
+          item={item}
+          hosts={hosts}
+          onUpdate={onUpdate}
+          onRemove={onRemove}
+          restricted={restricted}
+        />
       )}
     </div>
   );
@@ -1071,119 +1297,90 @@ function QuickAddStrip({ quickAdds, hosts, onTap, onRemove, title }) {
 }
 
 // ============================================================
-// ITEM EDIT SHEET
+// INLINE ITEM EDIT FORM (used inside ItemSummaryRow when expanded)
 // ============================================================
-function ItemEditSheet({ item, hosts, isNew, onSave, onDelete, onClose }) {
-  const [name, setName] = useState(item.name);
-  const [qty, setQty] = useState(item.qty);
+function InlineItemEditForm({ item, hosts, onUpdate, onRemove, restricted }) {
+  const [name, setName] = useState(item.name || '');
+  const [qtyStr, setQtyStr] = useState(String(item.qty || 1));
   const [priceStr, setPriceStr] = useState(((item.unitPrice || 0) / 100).toFixed(2));
-  const [hostId, setHostId] = useState(item.hostId || '');
-  const [saveForQuickAdd, setSaveForQuickAdd] = useState(!!item.saveForQuickAdd);
-
-  const submit = () => {
-    onSave({
-      ...item,
-      name: name.trim(),
-      qty: Math.max(1, Number(qty) || 1),
-      unitPrice: parseMoney(priceStr) ?? 0,
-      hostId,
-      saveForQuickAdd
-    });
-  };
-
-  const canSave = name.trim() && hostId;
 
   return (
-    <div className="fixed inset-0 z-30 flex items-end" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div
-        className="relative w-full bg-white rounded-t-3xl shadow-sheet p-5 flex flex-col gap-4 max-h-[92vh] overflow-y-auto"
-        style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}
-      >
-        <div className="w-10 h-1 rounded-full bg-hairline mx-auto -mt-2" />
-        <div className="flex items-center justify-between">
-          <h2 className="text-[18px] font-bold">{isNew ? 'New item' : 'Edit item'}</h2>
-          <button onClick={onClose} aria-label="Close" className="p-2 -mr-2 text-muted active:opacity-60">
-            <X size={22} />
-          </button>
-        </div>
+    <div className="border-t border-hairline px-3 py-3 flex flex-col gap-3 bg-canvas">
+      <label className="flex flex-col gap-1">
+        <span className="text-[11px] uppercase tracking-wide text-muted">What is it?</span>
+        <input
+          className="input"
+          placeholder="(untitled)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => onUpdate({ name: name.trim() })}
+        />
+      </label>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-[12px] uppercase tracking-wide text-muted">What is it?</span>
+      <div className="flex gap-2">
+        <label className="flex flex-col gap-1 w-20">
+          <span className="text-[11px] uppercase tracking-wide text-muted">Qty</span>
           <input
-            className="input"
-            placeholder="e.g. lamp"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus
+            className="input text-center disabled:opacity-50"
+            type="text"
+            inputMode="numeric"
+            value={qtyStr}
+            disabled={restricted}
+            onFocus={(e) => { try { e.target.select(); } catch {} }}
+            onChange={(e) => setQtyStr(e.target.value.replace(/[^0-9]/g, ''))}
+            onBlur={() => onUpdate({ qty: Math.max(1, Number(qtyStr) || 1) })}
           />
         </label>
-
-        <div className="flex gap-2">
-          <label className="flex flex-col gap-1 w-24">
-            <span className="text-[12px] uppercase tracking-wide text-muted">Qty</span>
-            <input
-              className="input text-center"
-              type="text"
-              inputMode="numeric"
-              value={qty}
-              onFocus={(e) => { try { e.target.select(); } catch {} }}
-              onChange={(e) => setQty(e.target.value.replace(/[^0-9]/g, ''))}
+        <label className="flex flex-col gap-1 flex-1">
+          <span className="text-[11px] uppercase tracking-wide text-muted">Price each</span>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none">$</span>
+            <MoneyInput
+              className="input pl-7 text-right tabular-nums disabled:opacity-50"
+              value={priceStr}
+              disabled={restricted}
+              onChange={setPriceStr}
+              onBlur={() => onUpdate({ unitPrice: parseMoney(priceStr) ?? 0 })}
             />
-          </label>
-          <label className="flex flex-col gap-1 flex-1">
-            <span className="text-[12px] uppercase tracking-wide text-muted">Price each</span>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none">$</span>
-              <MoneyInput
-                className="input pl-7 text-right tabular-nums"
-                value={priceStr}
-                onChange={setPriceStr}
-              />
-            </div>
-          </label>
-        </div>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[12px] uppercase tracking-wide text-muted">Whose item?</span>
-          <select
-            className="input"
-            value={hostId}
-            onChange={(e) => setHostId(e.target.value)}
-          >
-            <option value="" disabled>Pick a host</option>
-            {hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-          </select>
+          </div>
         </label>
-
-        <label className="flex items-center gap-3 cursor-pointer select-none py-1">
-          <input
-            type="checkbox"
-            checked={saveForQuickAdd}
-            onChange={(e) => setSaveForQuickAdd(e.target.checked)}
-            className="w-5 h-5 rounded accent-amber-500"
-          />
-          <span className="text-[14px]">Save this item to quick-add for later</span>
-        </label>
-
-        <div className="flex gap-2 pt-2">
-          {!isNew && (
-            <button
-              onClick={() => onDelete(item.id)}
-              className="rounded-2xl border border-red-200 text-red-600 font-semibold py-3.5 px-5 active:opacity-60"
-            >
-              <Trash2 size={18} className="inline" />
-            </button>
-          )}
-          <button
-            onClick={submit}
-            disabled={!canSave}
-            className="btn-primary flex-1"
-          >
-            {isNew ? 'Add to transaction' : 'Save'}
-          </button>
-        </div>
       </div>
+      {restricted && (
+        <div className="text-[11px] text-muted -mt-2 px-1">
+          Qty and price are locked once the transaction is complete (would change historical totals).
+        </div>
+      )}
+
+      <label className="flex flex-col gap-1">
+        <span className="text-[11px] uppercase tracking-wide text-muted">Whose item?</span>
+        <select
+          className="input"
+          value={item.hostId || ''}
+          onChange={(e) => onUpdate({ hostId: e.target.value })}
+        >
+          <option value="" disabled>Pick a host</option>
+          {hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+        </select>
+      </label>
+
+      <label className="flex items-center gap-3 cursor-pointer select-none py-1">
+        <input
+          type="checkbox"
+          checked={!!item.saveForQuickAdd}
+          onChange={(e) => onUpdate({ saveForQuickAdd: e.target.checked })}
+          className="w-5 h-5 rounded accent-amber-500"
+        />
+        <span className="text-[13px]">Save this item to quick-add for later</span>
+      </label>
+
+      {onRemove && !restricted && (
+        <button
+          onClick={onRemove}
+          className="rounded-2xl border border-red-200 text-red-600 font-semibold py-2 active:opacity-60 text-[13px] flex items-center justify-center gap-1.5"
+        >
+          <Trash2 size={14} /> Remove from transaction
+        </button>
+      )}
     </div>
   );
 }
@@ -1308,16 +1505,23 @@ function ManualHostInput({ host, fromItems, value, onChange }) {
 // ============================================================
 // COMPLETE BUTTON
 // ============================================================
-function PaymentToggle({ active, disabled, icon, label, onClick }) {
+function PaymentToggle({ method, active, disabled, icon, label, onClick }) {
+  // Active state matches the per-method palette used on the home-page
+  // transaction rows (cash = emerald, Venmo = sky, split = amber).
+  const styles = {
+    cash: 'bg-emerald-100 text-emerald-800 border-emerald-500',
+    digital: 'bg-sky-100 text-sky-800 border-sky-500',
+    split: 'bg-amber-100 text-amber-800 border-amber-500'
+  };
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center justify-center gap-2 rounded-2xl py-3 font-semibold text-[14px] active:opacity-80 disabled:opacity-50 ${
+      className={`flex items-center justify-center gap-2 rounded-2xl py-3 font-semibold text-[14px] active:opacity-80 disabled:opacity-50 border-2 ${
         active
-          ? 'bg-accent text-white border-2 border-accent'
-          : 'bg-white text-ink border-2 border-hairline'
+          ? styles[method] || 'bg-accent/10 text-accent-deep border-accent'
+          : 'bg-white text-ink border-hairline'
       }`}
     >
       {icon}
