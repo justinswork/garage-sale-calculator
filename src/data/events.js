@@ -45,6 +45,12 @@ export async function setEventStatus(eventId, status) {
   await updateDoc(doc(db, 'events', eventId), { status });
 }
 
+// Update one or more event detail fields (startDate, endDate, location, notes).
+// Pass null to clear a field. Caller is responsible for audit logging.
+export async function updateEventDetails(eventId, patch) {
+  await updateDoc(doc(db, 'events', eventId), patch);
+}
+
 export async function setDailyStartingCash(eventId, dayKey, cents) {
   await updateDoc(doc(db, 'events', eventId), {
     [`dailyStartingCash.${dayKey}`]: cents

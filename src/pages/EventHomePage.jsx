@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, AlertTriangle, Share2, Pencil, Wallet, X, Tag, Users, ChevronDown, ArrowRight, Smartphone, Banknote, Lock, Check } from 'lucide-react';
+import { Plus, AlertTriangle, Share2, Pencil, Wallet, X, Tag, Users, ChevronDown, ArrowRight, Smartphone, Banknote, Lock, Check, Calendar, MapPin } from 'lucide-react';
 import HostPill, { HostDot } from '../components/HostPill.jsx';
 import MoneyInput from '../components/MoneyInput.jsx';
 import { paymentColor } from '../utils/colors.js';
@@ -101,6 +101,8 @@ export default function EventHomePage() {
             </span>
           </Link>
         )}
+        <EventDetailsSummary event={event} />
+
         {!hasActivity ? (
           <WelcomeHero
             event={event}
@@ -285,6 +287,58 @@ function SaleRow({ sale, eventId, hostName, hosts, saleNumber }) {
           </span>
         )}
       </div>
+    </Link>
+  );
+}
+
+function EventDetailsSummary({ event }) {
+  const start = event.startDate;
+  const end = event.endDate;
+  const location = event.location?.trim();
+  const notes = event.notes?.trim();
+  const hasAny = start || end || location || notes;
+
+  const dateLabel = (() => {
+    if (!start && !end) return null;
+    if (start && end && start !== end) return `${formatDayLabel(start)} – ${formatDayLabel(end)}`;
+    if (start) return formatDayLabel(start);
+    return formatDayLabel(end);
+  })();
+
+  if (!hasAny) {
+    return (
+      <Link
+        to={`/e/${event.id}/settings`}
+        className="card p-3 flex items-center gap-2 text-[12px] text-muted active:opacity-70"
+      >
+        <Pencil size={14} />
+        <span>Add dates, location, or other details</span>
+      </Link>
+    );
+  }
+
+  return (
+    <Link
+      to={`/e/${event.id}/settings`}
+      className="card p-3 flex flex-col gap-1 text-[13px] active:opacity-70"
+    >
+      <div className="flex items-center gap-3 flex-wrap">
+        {dateLabel && (
+          <span className="flex items-center gap-1.5">
+            <Calendar size={13} className="text-muted shrink-0" />
+            <span>{dateLabel}</span>
+          </span>
+        )}
+        {location && (
+          <span className="flex items-center gap-1.5 min-w-0">
+            <MapPin size={13} className="text-muted shrink-0" />
+            <span className="truncate">{location}</span>
+          </span>
+        )}
+      </div>
+      {notes && (
+        <div className="text-[12px] text-muted whitespace-pre-line line-clamp-2">{notes}</div>
+      )}
     </Link>
   );
 }

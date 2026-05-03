@@ -25,6 +25,7 @@ const TYPE_STYLES = {
   'settlement.recorded':         { icon: ArrowRight,     bg: 'bg-emerald-100', fg: 'text-emerald-700' },
   'settlement.undone':           { icon: RotateCcw,      bg: 'bg-amber-100',   fg: 'text-amber-700' },
   'event.renamed':               { icon: Pencil,         bg: 'bg-sky-100',     fg: 'text-sky-700' },
+  'event.details.changed':       { icon: Pencil,         bg: 'bg-sky-100',     fg: 'text-sky-700' },
   'event.closed':                { icon: Lock,           bg: 'bg-slate-100',   fg: 'text-slate-700' },
   'event.opened':                { icon: Unlock,         bg: 'bg-emerald-100', fg: 'text-emerald-700' },
   'host.added':                  { icon: Users,          bg: 'bg-violet-100',  fg: 'text-violet-700' },

@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2 } from 'lucide-react';
+import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText } from 'lucide-react';
 import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
-import { renameEvent, setEventStatus, deleteEvent } from '../data/events.js';
+import { renameEvent, setEventStatus, deleteEvent, updateEventDetails } from '../data/events.js';
 import { renameHost } from '../data/hosts.js';
 import { recordAudit } from '../data/audit.js';
 import { removeRecentEvent } from '../utils/storage.js';
@@ -20,6 +20,26 @@ export default function EventSettingsPage() {
   const [editingHostId, setEditingHostId] = useState(null);
   const [hostName, setHostName] = useState('');
   const [copied, setCopied] = useState(false);
+  const [startDate, setStartDate] = useState(event.startDate || '');
+  const [endDate, setEndDate] = useState(event.endDate || '');
+  const [location, setLocation] = useState(event.location || '');
+  const [eventNotes, setEventNotes] = useState(event.notes || '');
+
+  const persistDetail = async (field, value, label) => {
+    const previous = event[field] || '';
+    const next = value || '';
+    if (previous === next) return;
+    await updateEventDetails(event.id, { [field]: next || null });
+    recordAudit(event.id, {
+      type: 'event.details.changed',
+      summary: next
+        ? `Set ${label} to "${next}"`
+        : `Cleared ${label}`,
+      byUid: uid,
+      byHostId: currentHost.id,
+      meta: { field, previous, current: next }
+    });
+  };
 
   const saveName = async () => {
     if (name.trim() && name !== event.name) {
@@ -121,6 +141,61 @@ export default function EventSettingsPage() {
             </button>
           </div>
           {copied && <div className="text-[12px] text-emerald-700">Link copied</div>}
+        </section>
+
+        <section className="card p-4 flex flex-col gap-3">
+          <h3 className="text-[12px] uppercase tracking-wide text-muted">Event details</h3>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted flex items-center gap-1.5">
+              <Calendar size={12} /> Date(s)
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                className="input flex-1"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                onBlur={() => persistDetail('startDate', startDate, 'start date')}
+              />
+              <span className="text-muted text-[13px]">to</span>
+              <input
+                type="date"
+                className="input flex-1"
+                value={endDate}
+                min={startDate || undefined}
+                onChange={(e) => setEndDate(e.target.value)}
+                onBlur={() => persistDetail('endDate', endDate, 'end date')}
+              />
+            </div>
+            <span className="text-[11px] text-muted">Leave end date blank for a single-day event.</span>
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted flex items-center gap-1.5">
+              <MapPin size={12} /> Location
+            </span>
+            <input
+              className="input"
+              placeholder="Address or neighborhood"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              onBlur={() => persistDetail('location', location.trim(), 'location')}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted flex items-center gap-1.5">
+              <FileText size={12} /> Notes
+            </span>
+            <textarea
+              className="input min-h-[72px]"
+              placeholder="Hours, what you're selling, parking notes…"
+              value={eventNotes}
+              onChange={(e) => setEventNotes(e.target.value)}
+              onBlur={() => persistDetail('notes', eventNotes.trim(), 'notes')}
+            />
+          </label>
         </section>
 
         <section className="card p-4 flex flex-col gap-2">
