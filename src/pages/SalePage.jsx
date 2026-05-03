@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Trash2, Plus, X, Check, AlertTriangle, RotateCcw, Sparkles, ShoppingBag,
-  Pencil, MessageSquarePlus, Tag, Banknote, Smartphone, Lock
+  Trash2, Plus, X, Check, AlertTriangle, RotateCcw, Sparkles,
+  Pencil, MessageSquarePlus, Tag, Banknote, Smartphone, Lock, ChevronLeft, ArrowRight
 } from 'lucide-react';
+import { hostColor } from '../utils/colors.js';
 import { Link } from 'react-router-dom';
 import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
@@ -43,6 +44,11 @@ export default function SalePage() {
 
   // item edit sheet: null | 'new' | <itemId>
   const [editingItemId, setEditingItemId] = useState(null);
+
+  // 2-step flow: rapid item entry then payment
+  const [stage, setStage] = useState('items'); // 'items' | 'payment'
+  const [rapidPriceStr, setRapidPriceStr] = useState('');
+  const rapidPriceRef = useRef(null);
 
   const overrideInputRef = useRef(null);
   const notesInputRef = useRef(null);
@@ -85,6 +91,9 @@ export default function SalePage() {
         } else if (s.cashReceived != null) {
           setCashStr((s.cashReceived / 100).toFixed(2));
         }
+        // Default stage: drafts open at items (rapid entry); pending or
+        // completed transactions open at payment for review/resolve.
+        setStage(s.status === 'draft' ? 'items' : 'payment');
       }
     });
     const unsubQA = watchQuickAdds(eventId, setQuickAdds);
@@ -112,11 +121,11 @@ export default function SalePage() {
     return null;
   }, [perHostFromItemsMap, overrideActive, allocation, discount]);
 
-  if (sale === undefined) return <Loader label="Loading sale…" />;
+  if (sale === undefined) return <Loader label="Loading transaction…" />;
   if (sale === null) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
-        <p className="font-semibold mb-2">Sale not found</p>
+        <p className="font-semibold mb-2">Transaction not found</p>
         <button className="btn-secondary" onClick={() => navigate(`/e/${eventId}`)}>Back to event</button>
       </div>
     );
@@ -129,8 +138,9 @@ export default function SalePage() {
   const eventClosed = event.status === 'closed';
   const editable = !isDeleted && (isDraft || isPendingState) && !eventClosed;
   const willBePending = overrideActive && discount > 0 && !allocation;
+  // Rapid-entry items intentionally have no name — only host + price + qty are required.
   const itemsValid = items.length > 0 && items.every((it) =>
-    it.name.trim() && it.hostId && it.unitPrice >= 0 && it.qty > 0);
+    it.hostId && it.unitPrice > 0 && it.qty > 0);
   const isPureCash = paymentMethod === 'cash';
   const isPureDigital = paymentMethod === 'digital';
   const isSplit = paymentMethod === 'split';
@@ -191,6 +201,26 @@ export default function SalePage() {
   const handleRemoveQuickAdd = async (qa) => {
     if (!confirm(`Remove "${qa.name}" from quick-add?`)) return;
     await removeQuickAdd(eventId, qa.id).catch(() => {});
+  };
+
+  // Rapid-entry: type a price, tap a host, item is appended with no name/qty.
+  // The host name shows as a colored pill, the input clears, and focus returns.
+  const addRapidItem = (hostId) => {
+    const price = parseMoney(rapidPriceStr);
+    if (price == null || price <= 0) return;
+    const it = {
+      id: shortId(6),
+      name: '',
+      qty: 1,
+      unitPrice: price,
+      hostId,
+      saveForQuickAdd: false
+    };
+    const next = [...items, it];
+    setItems(next);
+    persistItems(next);
+    setRapidPriceStr('');
+    setTimeout(() => rapidPriceRef.current?.focus(), 0);
   };
 
   const persistOverride = () => {
@@ -337,13 +367,13 @@ export default function SalePage() {
   };
 
   const discardDraft = async () => {
-    if (!confirm('Discard this draft sale?')) return;
+    if (!confirm('Discard this draft transaction?')) return;
     await hardDeleteDraft(eventId, saleId);
     navigate(`/e/${eventId}`);
   };
 
   const remove = async () => {
-    if (!confirm('Delete this sale? Totals will be updated. You can restore it from the audit log.')) return;
+    if (!confirm('Delete this transaction? Totals will be updated. You can restore it from the audit log.')) return;
     await softDeleteSale(eventId, saleId, { hostId: currentHost.id });
     navigate(`/e/${eventId}`);
   };
@@ -357,9 +387,9 @@ export default function SalePage() {
         title={(() => {
           const num = saleNumberMap?.[saleId];
           const prefix = num ? `#${num} · ` : '';
-          if (isDraft) return prefix + 'New sale';
-          if (isPendingState) return prefix + 'Resolve sale';
-          return prefix + 'Sale';
+          if (isDraft) return prefix + 'New transaction';
+          if (isPendingState) return prefix + 'Resolve transaction';
+          return prefix + 'Transaction';
         })()}
         backTo={`/e/${eventId}`}
         rightSlot={
@@ -369,7 +399,7 @@ export default function SalePage() {
                 <RotateCcw size={18} />
               </button>
             ) : (isCompleted || isPendingState) ? (
-              <button onClick={remove} className="p-2 -mr-1 text-red-600 active:opacity-60" aria-label="Delete sale">
+              <button onClick={remove} className="p-2 -mr-1 text-red-600 active:opacity-60" aria-label="Delete transaction">
                 <Trash2 size={18} />
               </button>
             ) : null
@@ -390,53 +420,86 @@ export default function SalePage() {
         )}
         {isDeleted && (
           <div className="card p-3 bg-red-50 border border-red-200 text-red-700 text-[13px]">
-            This sale has been deleted and is excluded from totals.
+            This transaction has been deleted and is excluded from totals.
           </div>
         )}
 
-        {/* ============ ITEMS ============ */}
-        {items.length === 0 ? (
-          <EmptyItemsHero
-            disabled={!editable}
-            onAdd={() => setEditingItemId('new')}
-            quickAdds={quickAdds}
-            hosts={hosts}
-            onQuickAdd={editable ? addQuickAdd : undefined}
-            onRemoveQuickAdd={editable ? handleRemoveQuickAdd : undefined}
-          />
-        ) : (
-          <section className="flex flex-col gap-2">
-            <div className="flex flex-col gap-2">
-              {items.map((it) => (
-                <ItemSummaryRow
-                  key={it.id}
-                  item={it}
-                  host={hosts.find((h) => h.id === it.hostId)}
-                  onTap={editable ? () => setEditingItemId(it.id) : undefined}
-                />
-              ))}
-            </div>
+        {/* ============ STAGE 1: RAPID ITEM ENTRY ============ */}
+        {stage === 'items' && (
+          <>
+            {editable && (
+              <RapidEntryCard
+                priceStr={rapidPriceStr}
+                onPriceChange={setRapidPriceStr}
+                priceRef={rapidPriceRef}
+                hosts={hosts}
+                currentHost={currentHost}
+                onTapHost={addRapidItem}
+              />
+            )}
+
+            {items.length > 0 ? (
+              <section className="flex flex-col gap-2">
+                <div className="flex items-baseline justify-between px-1">
+                  <h3 className="text-[12px] uppercase tracking-wide text-muted">
+                    Items added · {items.length}
+                  </h3>
+                  <span className="text-[12px] text-muted tabular-nums">
+                    Subtotal <span className="text-ink font-semibold">{formatMoney(subtotal)}</span>
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {items.map((it) => (
+                    <ItemSummaryRow
+                      key={it.id}
+                      item={it}
+                      host={hosts.find((h) => h.id === it.hostId)}
+                      hosts={hosts}
+                      onTap={editable ? () => setEditingItemId(it.id) : undefined}
+                      onRemove={editable ? () => deleteItem(it.id) : undefined}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : (
+              !editable && (
+                <div className="card p-6 text-center text-muted text-[14px]">No items.</div>
+              )
+            )}
+
             {editable && (
               <button
                 onClick={() => setEditingItemId('new')}
-                className="mt-2 flex items-center justify-center gap-2 rounded-2xl bg-accent/10 text-accent-deep font-semibold py-3.5 active:opacity-70"
+                className="self-center text-accent text-[13px] font-semibold active:opacity-60 px-4 py-2"
               >
-                <Plus size={20} /> Add another item
+                + Add detailed item (with name, qty)
               </button>
             )}
+
             {editable && quickAdds.length > 0 && (
               <QuickAddStrip
                 quickAdds={quickAdds}
                 hosts={hosts}
                 onTap={addQuickAdd}
-                onRemove={editable ? handleRemoveQuickAdd : undefined}
+                onRemove={handleRemoveQuickAdd}
               />
             )}
-          </section>
+          </>
+        )}
+
+        {/* ============ STAGE 2: PAYMENT ============ */}
+        {stage === 'payment' && items.length > 0 && (
+          <ItemsByHostSummary
+            items={items}
+            hosts={hosts}
+            currentHost={currentHost}
+            onTapItem={editable ? (id) => setEditingItemId(id) : undefined}
+            onRemoveItem={editable ? deleteItem : undefined}
+          />
         )}
 
         {/* ============ TOTAL + CASH ============ */}
-        {items.length > 0 && (
+        {stage === 'payment' && items.length > 0 && (
           <section className="card p-5 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <span className="text-muted text-[14px]">Customer pays</span>
@@ -609,7 +672,7 @@ export default function SalePage() {
         )}
 
         {/* ============ DISCOUNT ALLOCATION ============ */}
-        {overrideActive && discount > 0 && editable && (
+        {stage === 'payment' && overrideActive && discount > 0 && editable && (
           <section className="flex flex-col gap-2">
             <h3 className="text-[14px] font-semibold px-2">
               How should the {formatMoney(discount)} discount be split?
@@ -625,7 +688,7 @@ export default function SalePage() {
             {!allocation && (
               <div className="flex items-center gap-2 text-amber-700 text-[12px] px-2">
                 <AlertTriangle size={14} />
-                Sale will be saved as pending and excluded from totals until you choose.
+                Transaction will be saved as pending and excluded from totals until you choose.
               </div>
             )}
           </section>
@@ -633,7 +696,7 @@ export default function SalePage() {
 
         {/* ============ PER-HOST BREAKDOWN ============ */}
         {/* Only shown when relevant — i.e. when there's a discount that affects the split */}
-        {items.length > 0 && overrideActive && discount > 0 && (
+        {stage === 'payment' && items.length > 0 && overrideActive && discount > 0 && (
           <section className="card p-4 flex flex-col gap-2">
             <h3 className="text-[12px] uppercase tracking-wide text-muted">Each host gets</h3>
             {hosts.map((h) => {
@@ -654,7 +717,7 @@ export default function SalePage() {
         )}
 
         {/* ============ NOTES ============ */}
-        {items.length > 0 && (
+        {stage === 'payment' && items.length > 0 && (
           showNotes || notes ? (
             <section className="flex flex-col gap-1">
               <h3 className="text-[12px] uppercase tracking-wide text-muted px-2">Note</h3>
@@ -680,7 +743,7 @@ export default function SalePage() {
           )
         )}
 
-        {enteredByHost && (
+        {stage === 'payment' && enteredByHost && (
           <div className="text-[11px] text-muted text-center pt-2">
             Entered by {enteredByHost.name}
           </div>
@@ -688,7 +751,7 @@ export default function SalePage() {
       </main>
 
       {/* ============ ACTION BAR ============ */}
-      {editable && (
+      {editable && stage === 'items' && (
         <div
           className="fixed bottom-0 left-0 right-0 px-4 pt-3 bg-white/95 backdrop-blur-xl border-t border-hairline flex gap-2"
           style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
@@ -696,6 +759,28 @@ export default function SalePage() {
           {isDraft && (
             <button onClick={discardDraft} className="btn-secondary flex-1">Discard</button>
           )}
+          <button
+            onClick={() => setStage('payment')}
+            disabled={!itemsValid}
+            className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-40"
+          >
+            Continue <ArrowRight size={18} />
+          </button>
+        </div>
+      )}
+
+      {editable && stage === 'payment' && (
+        <div
+          className="fixed bottom-0 left-0 right-0 px-4 pt-3 bg-white/95 backdrop-blur-xl border-t border-hairline flex gap-2"
+          style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
+        >
+          <button
+            onClick={() => setStage('items')}
+            className="btn-secondary px-4 flex items-center gap-1"
+            aria-label="Back to items"
+          >
+            <ChevronLeft size={18} /> Items
+          </button>
           <CompleteButton
             disabled={!canSubmit}
             cashShort={cashShort}
@@ -724,36 +809,169 @@ export default function SalePage() {
 }
 
 // ============================================================
-// EMPTY STATE HERO
+// RAPID ENTRY CARD (stage 1: price input + host buttons)
 // ============================================================
-function EmptyItemsHero({ disabled, onAdd, quickAdds, hosts, onQuickAdd, onRemoveQuickAdd }) {
+function RapidEntryCard({ priceStr, onPriceChange, priceRef, hosts, currentHost, onTapHost }) {
+  const priceCents = parseMoney(priceStr);
+  const hasValidPrice = priceCents != null && priceCents > 0;
+  const singleHost = hosts.length === 1;
+
   return (
-    <div className="flex flex-col items-center gap-5 pt-6">
-      <div className="card p-8 w-full flex flex-col items-center gap-4 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-accent/10 text-accent-deep flex items-center justify-center">
-          <ShoppingBag size={28} strokeWidth={1.6} />
+    <section className="card p-5 flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
+        <label className="text-[11px] uppercase tracking-wide text-muted px-1">Price</label>
+        <div className="relative">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted text-[26px] font-semibold pointer-events-none">$</span>
+          <MoneyInput
+            ref={priceRef}
+            autoFocus
+            value={priceStr}
+            onChange={onPriceChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && singleHost && hasValidPrice) {
+                onTapHost(hosts[0].id);
+              }
+            }}
+            placeholder="0.00"
+            className="w-full text-[28px] font-bold tabular-nums rounded-2xl bg-white border border-hairline pl-10 pr-4 py-4 outline-none focus:border-accent"
+          />
         </div>
-        <div>
-          <h2 className="text-[18px] font-semibold">What are they buying?</h2>
-          <p className="text-[13px] text-muted mt-1 max-w-xs">Add each item with its price and whose item it is.</p>
-        </div>
+      </div>
+
+      {singleHost ? (
         <button
-          onClick={onAdd}
-          disabled={disabled}
-          className="btn-primary px-8 flex items-center gap-2 disabled:opacity-50"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onTapHost(hosts[0].id)}
+          disabled={!hasValidPrice}
+          className="btn-primary flex items-center justify-center gap-2 disabled:opacity-40"
         >
           <Plus size={20} /> Add item
         </button>
-      </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <label className="text-[11px] uppercase tracking-wide text-muted px-1">Whose item?</label>
+          <div className="grid grid-cols-2 gap-2">
+            {hosts.map((h) => (
+              <RapidHostButton
+                key={h.id}
+                host={h}
+                hosts={hosts}
+                isYou={h.id === currentHost.id}
+                disabled={!hasValidPrice}
+                onClick={() => onTapHost(h.id)}
+              />
+            ))}
+          </div>
+          {!hasValidPrice && (
+            <div className="text-[11px] text-muted text-center pt-1">
+              Type a price first, then tap a host.
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
-      {quickAdds && quickAdds.length > 0 && onQuickAdd && (
-        <QuickAddStrip
-          quickAdds={quickAdds}
-          hosts={hosts}
-          onTap={onQuickAdd}
-          onRemove={onRemoveQuickAdd}
-          title="Or use a quick add"
-        />
+function RapidHostButton({ host, hosts, isYou, disabled, onClick }) {
+  const c = hostColor(host.id, hosts);
+  return (
+    <button
+      type="button"
+      // prevent the input from blurring (and the keyboard from dropping) on tap
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-2xl py-4 px-4 font-semibold text-[15px] flex items-center gap-2 active:opacity-70 disabled:opacity-40 transition-opacity border-2 ${c.bg} ${c.text} ${c.border}`}
+    >
+      <span className={`w-2.5 h-2.5 rounded-full ${c.dot}`} />
+      <span className="truncate">{host.name}{isYou ? ' (you)' : ''}</span>
+    </button>
+  );
+}
+
+// ============================================================
+// ITEMS BY HOST SUMMARY (stage 2: grouped review)
+// ============================================================
+function ItemsByHostSummary({ items, hosts, currentHost, onTapItem, onRemoveItem }) {
+  // Group items by hostId, preserving host order from the hosts list.
+  const byHost = hosts
+    .map((h) => ({
+      host: h,
+      items: items.filter((it) => it.hostId === h.id),
+      total: items
+        .filter((it) => it.hostId === h.id)
+        .reduce((sum, it) => sum + (it.qty || 0) * (it.unitPrice || 0), 0)
+    }))
+    .filter((g) => g.items.length > 0);
+
+  // Items with no hostId (shouldn't happen, but defensive)
+  const orphaned = items.filter((it) => !it.hostId || !hosts.some((h) => h.id === it.hostId));
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-[12px] uppercase tracking-wide text-muted px-2">Items by host</h3>
+      {byHost.map((g) => (
+        <details key={g.host.id} className="card group">
+          <summary className="cursor-pointer list-none p-3 flex items-center justify-between gap-2 active:opacity-70">
+            <HostPill host={g.host} hosts={hosts} you={g.host.id === currentHost.id} />
+            <span className="flex items-center gap-2 text-[13px] text-muted">
+              <span>× {g.items.length}</span>
+              <span className="text-ink font-bold tabular-nums">{formatMoney(g.total)}</span>
+              <ChevronLeft size={14} className="-rotate-90 transition-transform group-open:rotate-90 text-muted" />
+            </span>
+          </summary>
+          <div className="px-3 pb-3 pt-0 flex flex-col gap-1.5 border-t border-hairline">
+            {g.items.map((it) => (
+              <CompactItemRow
+                key={it.id}
+                item={it}
+                onTap={onTapItem ? () => onTapItem(it.id) : undefined}
+                onRemove={onRemoveItem ? () => onRemoveItem(it.id) : undefined}
+              />
+            ))}
+          </div>
+        </details>
+      ))}
+      {orphaned.length > 0 && (
+        <div className="card p-3 text-[12px] text-muted">
+          {orphaned.length} item{orphaned.length === 1 ? '' : 's'} with no host. Tap to assign.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CompactItemRow({ item, onTap, onRemove }) {
+  const subtotal = (item.qty || 0) * (item.unitPrice || 0);
+  const hasName = !!item.name?.trim();
+  return (
+    <div className="flex items-center gap-2 text-[13px]">
+      <button
+        type="button"
+        onClick={onTap}
+        disabled={!onTap}
+        className="flex-1 min-w-0 flex items-center gap-2 text-left active:opacity-60 disabled:active:opacity-100"
+      >
+        <span className="font-bold tabular-nums shrink-0 w-16">{formatMoney(subtotal)}</span>
+        <span className="text-muted truncate flex-1 min-w-0">
+          {hasName ? (
+            (item.qty || 1) > 1 ? `${item.qty} × ${item.name}` : item.name
+          ) : (
+            <span className="italic">untitled</span>
+          )}
+        </span>
+        {onTap && !onRemove && <Pencil size={11} className="text-muted shrink-0" />}
+      </button>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
+          className="p-1 text-muted active:opacity-60 shrink-0"
+          aria-label="Remove item"
+        >
+          <X size={14} />
+        </button>
       )}
     </div>
   );
@@ -762,32 +980,40 @@ function EmptyItemsHero({ disabled, onAdd, quickAdds, hosts, onQuickAdd, onRemov
 // ============================================================
 // ITEM SUMMARY ROW (read-only, tap to edit)
 // ============================================================
-function ItemSummaryRow({ item, host, onTap }) {
+function ItemSummaryRow({ item, host, hosts, onTap, onRemove }) {
   const subtotal = (item.qty || 0) * (item.unitPrice || 0);
-  const Wrapper = onTap ? 'button' : 'div';
+  const hasName = !!item.name?.trim();
   return (
-    <Wrapper
-      onClick={onTap}
-      className={`card p-4 flex items-center gap-3 text-left ${onTap ? 'active:opacity-70' : ''}`}
-    >
-      <div className="flex-1 min-w-0">
-        <div className="font-semibold text-[16px] truncate">
-          {(item.qty || 1) > 1 && <span className="text-muted">{item.qty} × </span>}
-          {item.name || <span className="text-muted italic font-normal">Untitled</span>}
-        </div>
-        <div className="text-[12px] text-muted">
-          {host?.name || 'No host'}
-          {item.saveForQuickAdd && <span className="ml-2 text-amber-600">★ saving</span>}
-        </div>
-      </div>
-      <div className="text-right shrink-0">
-        <div className="font-bold tabular-nums text-[16px]">{formatMoney(subtotal)}</div>
-        {(item.qty || 1) > 1 && (
-          <div className="text-[11px] text-muted tabular-nums">{formatMoney(item.unitPrice)} ea</div>
-        )}
-      </div>
-      {onTap && <Pencil size={14} className="text-muted shrink-0" />}
-    </Wrapper>
+    <div className="card p-3 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onTap}
+        disabled={!onTap}
+        className="flex-1 min-w-0 flex items-center gap-2 text-left active:opacity-70 disabled:active:opacity-100"
+      >
+        <span className="font-bold tabular-nums text-[17px] shrink-0">{formatMoney(subtotal)}</span>
+        {host && <HostPill host={host} hosts={hosts} size="sm" />}
+        <span className="text-[13px] text-muted truncate flex-1 min-w-0">
+          {hasName ? (
+            (item.qty || 1) > 1 ? `${item.qty} × ${item.name}` : item.name
+          ) : (
+            <span className="italic">untitled</span>
+          )}
+          {item.saveForQuickAdd && <span className="ml-2 text-amber-600">★</span>}
+        </span>
+        {onTap && !onRemove && <Pencil size={12} className="text-muted shrink-0" />}
+      </button>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
+          className="p-2 text-muted active:opacity-60 shrink-0"
+          aria-label="Remove item"
+        >
+          <X size={18} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -954,7 +1180,7 @@ function ItemEditSheet({ item, hosts, isNew, onSave, onDelete, onClose }) {
             disabled={!canSave}
             className="btn-primary flex-1"
           >
-            {isNew ? 'Add to sale' : 'Save'}
+            {isNew ? 'Add to transaction' : 'Save'}
           </button>
         </div>
       </div>
@@ -997,7 +1223,7 @@ function AllocationCards({ hosts, perHostFromItems, discount, allocation, onChan
       )}
       <ChoiceCard
         title="Decide later"
-        body="Save now, come back to this. Sale won't be in the totals yet."
+        body="Save now, come back to this. Transaction won't be in the totals yet."
         active={isLater && !showManual}
         onClick={() => { setShowManual(false); onChange(null); }}
       />
@@ -1101,7 +1327,7 @@ function PaymentToggle({ active, disabled, icon, label, onClick }) {
 }
 
 function CompleteButton({ disabled, cashShort, splitMismatch, saveAsDraft, willBePending, shortBy, onClick }) {
-  let label = 'Complete sale';
+  let label = 'Complete transaction';
   let icon = <Check size={18} />;
   let classes = 'bg-accent text-white';
   if (cashShort) {

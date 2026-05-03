@@ -107,7 +107,7 @@ export default function EventHomePage() {
                 {formatMoney(totals.grand)}
               </div>
               <div className="text-[13px] text-muted">
-                {totals.completedCount} sale{totals.completedCount === 1 ? '' : 's'}
+                {totals.completedCount} transaction{totals.completedCount === 1 ? '' : 's'}
                 {hosts.length > 1 && (
                   <> · <span className="text-ink font-medium">{formatMoney(totals.perHost[currentHost.id] || 0)}</span> is yours</>
                 )}
@@ -151,7 +151,7 @@ export default function EventHomePage() {
             )}
 
             <div className="flex items-center justify-between px-2 -mb-1">
-              <h3 className="text-[12px] uppercase tracking-wide text-muted">Sales log</h3>
+              <h3 className="text-[12px] uppercase tracking-wide text-muted">Transactions</h3>
               <PaymentFilterDropdown value={paymentFilter} onChange={setPaymentFilter} />
             </div>
 
@@ -213,7 +213,7 @@ export default function EventHomePage() {
           className="fixed bottom-6 left-1/2 -translate-x-1/2 btn-primary shadow-card flex items-center gap-2 px-6"
           style={{ paddingBottom: 'calc(0.875rem + env(safe-area-inset-bottom))' }}
         >
-          <Plus size={20} /> {creating ? 'Starting…' : 'New sale'}
+          <Plus size={20} /> {creating ? 'Starting…' : 'New transaction'}
         </button>
       )}
     </div>
@@ -290,7 +290,7 @@ function WelcomeHero({ event, hosts, todayCash, onShare }) {
         <div>
           <h2 className="text-[20px] font-semibold">{event.name}</h2>
           <p className="text-[13px] text-muted mt-1 max-w-xs">
-            Ready when you are. Hit <span className="font-semibold text-ink">+ New sale</span> below to log your first transaction.
+            Ready when you are. Hit <span className="font-semibold text-ink">+ New transaction</span> below to log your first one.
           </p>
         </div>
       </div>
@@ -343,7 +343,7 @@ function DaySection({ day, hosts, eventId, hostName, startingCash, defaultOpen, 
             <span className="text-muted font-semibold">{formatMoney(day.total)}</span>
           )}
           <span className="text-[11px] text-muted">
-            {day.sales.length} sale{day.sales.length === 1 ? '' : 's'}
+            {day.sales.length} txn{day.sales.length === 1 ? '' : 's'}
           </span>
         </div>
       </summary>
@@ -357,7 +357,7 @@ function DaySection({ day, hosts, eventId, hostName, startingCash, defaultOpen, 
         />
         {filtered.length === 0 && day.sales.length > 0 ? (
           <div className="card p-3 text-center text-[12px] text-muted">
-            No matching sales for this filter.
+            No matching transactions for this filter.
           </div>
         ) : (
           filtered.map((s) => (
@@ -556,7 +556,7 @@ function DebtRow({ debt, hosts, eventId, saleNumberMap, currentHost, uid, disabl
           onClick={(e) => { e.preventDefault(); setShowSales((v) => !v); }}
           className="text-[12px] text-accent active:opacity-60"
         >
-          {showSales ? 'Hide sales' : `Why? · ${debt.sales.length} sale${debt.sales.length === 1 ? '' : 's'}`}
+          {showSales ? 'Hide transactions' : `Why? · ${debt.sales.length} transaction${debt.sales.length === 1 ? '' : 's'}`}
         </button>
         {!disabled && (
           <div className="ml-auto flex items-center gap-1.5">
@@ -590,7 +590,7 @@ function DebtRow({ debt, hosts, eventId, saleNumberMap, currentHost, uid, disabl
                 to={`/e/${eventId}/sale/${s.saleId}`}
                 className="flex items-center justify-between text-[12px] active:opacity-60"
               >
-                <span className="text-accent">Sale {num ? `#${num}` : s.saleId.slice(0, 6)}</span>
+                <span className="text-accent">Transaction {num ? `#${num}` : s.saleId.slice(0, 6)}</span>
                 <span className="tabular-nums text-muted">{formatMoney(s.share)}</span>
               </Link>
             );

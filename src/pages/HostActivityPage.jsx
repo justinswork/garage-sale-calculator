@@ -130,7 +130,7 @@ export default function HostActivityPage() {
             {formatMoney(data.totalEarned)}
           </div>
           <div className="text-[13px] text-muted">
-            earned across {data.saleEntries.length - data.pendingCount} sale{data.saleEntries.length - data.pendingCount === 1 ? '' : 's'}
+            earned across {data.saleEntries.length - data.pendingCount} transaction{data.saleEntries.length - data.pendingCount === 1 ? '' : 's'}
           </div>
           <div className="border-t border-hairline pt-3 flex flex-col gap-1.5 text-[13px]">
             <Row label="Cash now" value={data.cashNow} bold />
@@ -171,10 +171,10 @@ export default function HostActivityPage() {
         )}
 
         <section className="flex flex-col gap-2">
-          <h3 className="text-[12px] uppercase tracking-wide text-muted px-2">Sales</h3>
+          <h3 className="text-[12px] uppercase tracking-wide text-muted px-2">Transactions</h3>
           {data.saleEntries.length === 0 ? (
             <div className="card p-4 text-center text-[14px] text-muted">
-              No sales include {host.name}'s items yet.
+              No transactions include {host.name}'s items yet.
             </div>
           ) : (
             data.saleEntries.map(({ sale, share, received }) => (

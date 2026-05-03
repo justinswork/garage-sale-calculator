@@ -87,7 +87,7 @@ export default function ReportPage() {
           <div className="text-[12px] uppercase tracking-wide text-muted">Grand total</div>
           <div className="text-[40px] font-bold leading-none tracking-tight">{formatMoney(data.grand)}</div>
           <div className="text-[12px] text-muted mt-1">
-            {data.includedSales.length} sale{data.includedSales.length === 1 ? '' : 's'}
+            {data.includedSales.length} transaction{data.includedSales.length === 1 ? '' : 's'}
             {data.pendingCount > 0 && ` · ${data.pendingCount} pending excluded`}
             {data.deletedCount > 0 && ` · ${data.deletedCount} deleted excluded`}
           </div>
@@ -106,7 +106,7 @@ export default function ReportPage() {
         <section className="card p-4">
           <h3 className="text-[12px] uppercase tracking-wide text-muted mb-2">Per day</h3>
           {data.byDay.length === 0 ? (
-            <div className="text-muted text-[14px]">No completed sales yet.</div>
+            <div className="text-muted text-[14px]">No completed transactions yet.</div>
           ) : data.byDay.map((day) => {
             const startCash = event.dailyStartingCash?.[day.dayKey];
             return (
@@ -116,7 +116,7 @@ export default function ReportPage() {
                   <span className="font-semibold tabular-nums">{formatMoney(day.total)}</span>
                 </div>
                 <div className="text-[12px] text-muted">
-                  {day.sales.length} sale{day.sales.length === 1 ? '' : 's'}
+                  {day.sales.length} transaction{day.sales.length === 1 ? '' : 's'}
                 </div>
                 {startCash != null && (
                   <div className="flex items-center justify-between text-[12px] text-muted pt-1">
@@ -179,7 +179,7 @@ export default function ReportPage() {
 
         {data.pendingCount > 0 && (
           <div className="card p-4 bg-amber-50 border border-amber-200 text-amber-800 text-[13px]">
-            {data.pendingCount} sale{data.pendingCount === 1 ? ' has' : 's have'} a pending discount allocation
+            {data.pendingCount} transaction{data.pendingCount === 1 ? ' has' : 's have'} a pending discount allocation
             and {data.pendingCount === 1 ? 'is' : 'are'} excluded from totals. Tap the warning on the home screen to resolve.
           </div>
         )}

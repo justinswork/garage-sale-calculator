@@ -121,13 +121,13 @@ export default function EventSettingsPage() {
             <div className="flex items-start gap-2 text-amber-700 text-[12px] bg-amber-50 rounded-xl p-3">
               <AlertTriangle size={14} className="mt-0.5 shrink-0" />
               <span>
-                Can't close yet — {pendingCount} sale{pendingCount === 1 ? ' has' : 's have'} a pending discount allocation.
+                Can't close yet — {pendingCount} transaction{pendingCount === 1 ? ' has' : 's have'} a pending discount allocation.
                 Resolve {pendingCount === 1 ? 'it' : 'them'} from the home screen first.
               </span>
             </div>
           ) : (
             <div className="text-[12px] text-muted">
-              Closing locks the event: no new sales, edits, or deletions until you reopen it.
+              Closing locks the event: no new transactions, edits, or deletions until you reopen it.
             </div>
           )}
         </section>
@@ -137,7 +137,7 @@ export default function EventSettingsPage() {
             <LogOut size={16} /> Switch host on this device
           </button>
           <div className="text-[12px] text-muted pt-2">
-            This forgets which host this device is signed in as. Your sales stay in place.
+            This forgets which host this device is signed in as. Your transactions stay in place.
           </div>
         </section>
       </main>

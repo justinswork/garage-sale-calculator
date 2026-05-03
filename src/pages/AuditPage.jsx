@@ -17,7 +17,7 @@ export default function AuditPage() {
       <main className="flex-1 px-4 py-4 flex flex-col gap-3">
         {deleted.length === 0 ? (
           <div className="card p-6 text-center text-muted text-[14px]">
-            No deleted sales.
+            No deleted transactions.
           </div>
         ) : (
           deleted.map((s) => {
