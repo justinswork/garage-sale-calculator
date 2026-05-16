@@ -1,0 +1,35 @@
+[
+  {
+    "id": "tc-001-pyrex-bowl",
+    "image": "images/pyrex-bowl.jpg",
+    "groundTruth": {
+      "description": "vintage pyrex mixing bowl, cinderella style, 1.5qt, fair condition with some surface wear",
+      "category": "kitchenware",
+      "brand": "pyrex"
+    },
+    "acceptablePriceRange": [5, 15],
+    "notes": "Common 1960s pattern. Comps typically $20-40 on eBay; garage sale should be ~25-35% of that."
+  },
+  {
+    "id": "tc-002-ryobi-drill",
+    "image": "images/ryobi-drill.jpg",
+    "groundTruth": {
+      "description": "ryobi 18v cordless drill, p209, with battery, good working condition",
+      "category": "power tools",
+      "brand": "ryobi"
+    },
+    "acceptablePriceRange": [15, 30],
+    "notes": "Functional name-brand power tool. Higher end of the discount band."
+  },
+  {
+    "id": "tc-003-ikea-poang",
+    "image": "images/ikea-poang.jpg",
+    "groundTruth": {
+      "description": "ikea poäng armchair, birch frame, beige cushion, good condition",
+      "category": "furniture",
+      "brand": "ikea"
+    },
+    "acceptablePriceRange": [20, 50],
+    "notes": "Furniture moves slow at garage sales but Poäng has strong name recognition."
+  }
+]
