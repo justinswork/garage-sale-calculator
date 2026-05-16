@@ -343,3 +343,33 @@ export function applySettlements(pairwiseDebts, settlements) {
     })
     .filter((d) => d.amount > 0);
 }
+
+// Walks days in chronological order and resolves each day's effective
+// starting cash. If the event has an explicit value in dailyStartingCash for
+// that dayKey, that wins. Otherwise the previous day's ending cash
+// (effective starting + cashTotal) carries over. The first day with no
+// explicit value falls back to 0. Returns the same array shape with two new
+// fields per day: effectiveStartingCash (cents) and isCarryover (boolean).
+export function applyDailyCashCarryover(event, daysAsc) {
+  const explicit = event?.dailyStartingCash || {};
+  let prevEnding = 0;
+  let hasPrev = false;
+  return daysAsc.map((day) => {
+    const explicitValue = explicit[day.dayKey];
+    let effectiveStartingCash;
+    let isCarryover;
+    if (explicitValue != null) {
+      effectiveStartingCash = explicitValue;
+      isCarryover = false;
+    } else if (hasPrev) {
+      effectiveStartingCash = prevEnding;
+      isCarryover = true;
+    } else {
+      effectiveStartingCash = 0;
+      isCarryover = false;
+    }
+    prevEnding = effectiveStartingCash + (day.cashTotal || 0);
+    hasPrev = true;
+    return { ...day, effectiveStartingCash, isCarryover };
+  });
+}

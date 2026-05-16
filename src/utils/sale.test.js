@@ -13,7 +13,8 @@ import {
   computeSettleUp,
   computeHostShare,
   computeReceivedAtSale,
-  applySettlements
+  applySettlements,
+  applyDailyCashCarryover
 } from './sale.js';
 
 // ─── Test helpers ───────────────────────────────────────────────────
@@ -603,5 +604,70 @@ describe('applySettlements', () => {
     const out = applySettlements(debts, settlements);
     expect(out[0].amount).toBe(250);
     expect(out[0].paidAmount).toBe(250);
+  });
+});
+
+describe('applyDailyCashCarryover', () => {
+  const days = [
+    { dayKey: '2025-05-10', cashTotal: 3950 },
+    { dayKey: '2025-05-11', cashTotal: 2000 },
+    { dayKey: '2025-05-12', cashTotal: 1500 }
+  ];
+
+  it('returns 0 for the first day when no explicit value is set', () => {
+    const out = applyDailyCashCarryover({}, days);
+    expect(out[0].effectiveStartingCash).toBe(0);
+    expect(out[0].isCarryover).toBe(false);
+  });
+
+  it('carries forward the previous day ending cash to days without an explicit value', () => {
+    const event = { dailyStartingCash: { '2025-05-10': 10000 } };
+    const out = applyDailyCashCarryover(event, days);
+    // Day 1: explicit $100.00, ending $139.50
+    expect(out[0]).toMatchObject({ effectiveStartingCash: 10000, isCarryover: false });
+    // Day 2: carried over from day 1 ending, ending $159.50
+    expect(out[1]).toMatchObject({ effectiveStartingCash: 13950, isCarryover: true });
+    // Day 3: carried over from day 2 ending
+    expect(out[2]).toMatchObject({ effectiveStartingCash: 15950, isCarryover: true });
+  });
+
+  it('respects an explicit value mid-chain and resumes carryover after it', () => {
+    const event = {
+      dailyStartingCash: {
+        '2025-05-10': 10000,
+        '2025-05-11': 500
+      }
+    };
+    const out = applyDailyCashCarryover(event, days);
+    expect(out[1]).toMatchObject({ effectiveStartingCash: 500, isCarryover: false });
+    // Day 3 carries over from day 2's *explicit* 500 + 2000 cash = 2500
+    expect(out[2]).toMatchObject({ effectiveStartingCash: 2500, isCarryover: true });
+  });
+
+  it('treats an explicit 0 as a deliberate value, not as "missing"', () => {
+    const event = {
+      dailyStartingCash: {
+        '2025-05-10': 10000,
+        '2025-05-11': 0
+      }
+    };
+    const out = applyDailyCashCarryover(event, days);
+    expect(out[1]).toMatchObject({ effectiveStartingCash: 0, isCarryover: false });
+  });
+
+  it('handles an event with no dailyStartingCash object at all', () => {
+    const out = applyDailyCashCarryover(undefined, days);
+    expect(out[0].effectiveStartingCash).toBe(0);
+    expect(out[1].effectiveStartingCash).toBe(3950);
+    expect(out[1].isCarryover).toBe(true);
+  });
+
+  it('handles a day with missing cashTotal field by treating it as zero', () => {
+    const event = { dailyStartingCash: { '2025-05-10': 10000 } };
+    const out = applyDailyCashCarryover(event, [
+      { dayKey: '2025-05-10' },
+      { dayKey: '2025-05-11' }
+    ]);
+    expect(out[1].effectiveStartingCash).toBe(10000);
   });
 });

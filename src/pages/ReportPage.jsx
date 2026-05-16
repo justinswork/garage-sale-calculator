@@ -4,7 +4,7 @@ import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
 import { formatMoney } from '../utils/money.js';
 import { localDayKey, formatDayLabel, formatTime } from '../utils/dates.js';
-import { resolvePerHost, isPending, effectiveTotal, computeSettleUp, applySettlements, getCashAmount } from '../utils/sale.js';
+import { resolvePerHost, isPending, effectiveTotal, computeSettleUp, applySettlements, getCashAmount, applyDailyCashCarryover } from '../utils/sale.js';
 
 export default function ReportPage() {
   const { event, hosts, sales, settlements } = useEvent();
@@ -13,6 +13,12 @@ export default function ReportPage() {
   const settle = useMemo(() => computeSettleUp(sales, hosts), [sales, hosts]);
   const remainingDebts = useMemo(() => applySettlements(settle.pairwiseDebts, settlements), [settle.pairwiseDebts, settlements]);
   const hostName = (id) => hosts.find((h) => h.id === id)?.name || 'Unknown';
+  // data.byDay is already sorted ascending — apply carryover so missing
+  // starting-cash days show the previous day's ending cash instead of $0.
+  const daysWithCarryover = useMemo(
+    () => applyDailyCashCarryover(event, data.byDay),
+    [event, data.byDay]
+  );
 
   const exportCsv = () => {
     const rows = [
@@ -45,13 +51,16 @@ export default function ReportPage() {
     }
     rows.push([]);
     rows.push(['Day', 'Starting cash', 'Cash sales', 'Cash on hand', 'Total sales']);
-    for (const day of data.byDay) {
-      const startCash = event.dailyStartingCash?.[day.dayKey];
+    for (const day of daysWithCarryover) {
+      // Starting cash column reflects the effective value (explicit OR
+      // carried over from the prior day) so the spreadsheet matches what
+      // the operator sees in the app.
+      const startCash = day.effectiveStartingCash;
       rows.push([
         formatDayLabel(day.dayKey),
-        startCash != null ? formatMoney(startCash) : '',
+        formatMoney(startCash),
         formatMoney(day.cashTotal),
-        startCash != null ? formatMoney(startCash + day.cashTotal) : '',
+        formatMoney(startCash + day.cashTotal),
         formatMoney(day.total)
       ]);
     }
@@ -105,10 +114,11 @@ export default function ReportPage() {
 
         <section className="card p-4">
           <h3 className="text-[12px] uppercase tracking-wide text-muted mb-2">Per day</h3>
-          {data.byDay.length === 0 ? (
+          {daysWithCarryover.length === 0 ? (
             <div className="text-muted text-[14px]">No completed transactions yet.</div>
-          ) : data.byDay.map((day) => {
-            const startCash = event.dailyStartingCash?.[day.dayKey];
+          ) : daysWithCarryover.map((day) => {
+            const startCash = day.effectiveStartingCash;
+            const startCashIsSet = event.dailyStartingCash?.[day.dayKey] != null || day.isCarryover;
             return (
               <div key={day.dayKey} className="py-2 border-b border-hairline last:border-b-0">
                 <div className="flex items-center justify-between">
@@ -118,9 +128,13 @@ export default function ReportPage() {
                 <div className="text-[12px] text-muted">
                   {day.sales.length} transaction{day.sales.length === 1 ? '' : 's'}
                 </div>
-                {startCash != null && (
+                {startCashIsSet && (
                   <div className="flex items-center justify-between text-[12px] text-muted pt-1">
-                    <span>Started with {formatMoney(startCash)} → cash on hand</span>
+                    <span>
+                      Started with {formatMoney(startCash)}
+                      {day.isCarryover && <span className="italic"> (carried over)</span>}
+                      {' → cash on hand'}
+                    </span>
                     <span className="tabular-nums font-semibold text-ink">{formatMoney(startCash + day.cashTotal)}</span>
                   </div>
                 )}

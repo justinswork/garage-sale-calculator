@@ -10,7 +10,7 @@ import { setDailyStartingCash, clearDailyStartingCash } from '../data/events.js'
 import EventHeader from '../components/EventHeader.jsx';
 import { formatMoney, parseMoney } from '../utils/money.js';
 import { localDayKey, formatDayLabel, formatTime } from '../utils/dates.js';
-import { resolvePerHost, isPending, effectiveTotal, computeSettleUp, applySettlements, getCashAmount } from '../utils/sale.js';
+import { resolvePerHost, isPending, effectiveTotal, computeSettleUp, applySettlements, getCashAmount, applyDailyCashCarryover } from '../utils/sale.js';
 import { recordSettlement, unrecordSettlement } from '../data/settlements.js';
 import { recordAudit } from '../data/audit.js';
 
@@ -50,6 +50,18 @@ export default function EventHomePage() {
       ...list
     ];
   }, [totals.byDay]);
+
+  // Walk days chronologically once per render to resolve each day's
+  // effective starting cash (explicit or carried over from the prior day's
+  // ending cash). The carryover map is keyed by dayKey for O(1) lookup.
+  const carryoverByDay = useMemo(() => {
+    const ascending = [...daysToShow].sort((a, b) => (a.dayKey < b.dayKey ? -1 : 1));
+    const augmented = applyDailyCashCarryover(event, ascending);
+    return Object.fromEntries(augmented.map((d) => [
+      d.dayKey,
+      { effectiveStartingCash: d.effectiveStartingCash, isCarryover: d.isCarryover }
+    ]));
+  }, [daysToShow, event]);
 
   const startSale = async () => {
     setCreating(true);
@@ -173,6 +185,8 @@ export default function EventHomePage() {
                 eventId={event.id}
                 hostName={hostName}
                 startingCash={event.dailyStartingCash?.[day.dayKey]}
+                effectiveStartingCash={carryoverByDay[day.dayKey]?.effectiveStartingCash ?? 0}
+                isCarryover={carryoverByDay[day.dayKey]?.isCarryover ?? false}
                 defaultOpen={idx === 0}
                 disabled={event.status === 'closed'}
                 paymentFilter={paymentFilter}
@@ -388,7 +402,7 @@ function WelcomeHero({ event, hosts, todayCash, onShare }) {
   );
 }
 
-function DaySection({ day, hosts, eventId, hostName, startingCash, defaultOpen, disabled, paymentFilter, saleNumberMap, settlements, uid, currentHost }) {
+function DaySection({ day, hosts, eventId, hostName, startingCash, effectiveStartingCash, isCarryover, defaultOpen, disabled, paymentFilter, saleNumberMap, settlements, uid, currentHost }) {
   const filtered = paymentFilter === 'all'
     ? day.sales
     : day.sales.filter((s) => (s.paymentMethod || 'cash') === paymentFilter);
@@ -416,6 +430,8 @@ function DaySection({ day, hosts, eventId, hostName, startingCash, defaultOpen, 
           eventId={eventId}
           dayKey={day.dayKey}
           startingCash={startingCash}
+          effectiveStartingCash={effectiveStartingCash}
+          isCarryover={isCarryover}
           dayCashSales={day.cashTotal}
           disabled={disabled}
           uid={uid}
@@ -729,13 +745,27 @@ function PaidSettlements({ settlements, hosts, eventId, disabled, uid, currentHo
   );
 }
 
-function CashStatusInline({ eventId, dayKey, startingCash, dayCashSales, disabled, uid, currentHost }) {
+function CashStatusInline({ eventId, dayKey, startingCash, effectiveStartingCash, isCarryover, dayCashSales, disabled, uid, currentHost }) {
   const [editing, setEditing] = useState(false);
-  const [str, setStr] = useState(startingCash != null ? (startingCash / 100).toFixed(2) : '');
+  // When opening the editor, prefill with the effective starting cash (the
+  // carried-over value if no explicit value is set) so the user can either
+  // accept it or override it.
+  const initialStr = (() => {
+    if (startingCash != null) return (startingCash / 100).toFixed(2);
+    if (isCarryover) return (effectiveStartingCash / 100).toFixed(2);
+    return '';
+  })();
+  const [str, setStr] = useState(initialStr);
 
   useEffect(() => {
-    setStr(startingCash != null ? (startingCash / 100).toFixed(2) : '');
-  }, [startingCash]);
+    if (startingCash != null) {
+      setStr((startingCash / 100).toFixed(2));
+    } else if (isCarryover) {
+      setStr((effectiveStartingCash / 100).toFixed(2));
+    } else {
+      setStr('');
+    }
+  }, [startingCash, effectiveStartingCash, isCarryover]);
 
   const save = async () => {
     const cents = parseMoney(str);
@@ -753,12 +783,19 @@ function CashStatusInline({ eventId, dayKey, startingCash, dayCashSales, disable
       }
     } else if (cents !== startingCash) {
       await setDailyStartingCash(eventId, dayKey, cents);
+      // When the user is overriding a carried-over value, capture the
+      // carryover context in the audit so it's clear they made a manual
+      // decision against the default.
+      const meta = { dayKey, amount: cents, previous: startingCash };
+      if (startingCash == null && isCarryover) {
+        meta.previousCarriedOver = effectiveStartingCash;
+      }
       recordAudit(eventId, {
         type: 'daycash.set',
         summary: `Set starting cash for ${dayLabel} to ${formatMoney(cents)}`,
         byUid: uid,
         byHostId: currentHost?.id || null,
-        meta: { dayKey, amount: cents, previous: startingCash }
+        meta
       });
     }
     setEditing(false);
@@ -766,7 +803,7 @@ function CashStatusInline({ eventId, dayKey, startingCash, dayCashSales, disable
 
   if (editing) {
     return (
-      <div className="px-3 flex items-center gap-2 text-[12px] text-muted">
+      <div className="px-3 flex items-center gap-2 text-[12px] text-muted flex-wrap">
         <Wallet size={12} />
         <span>Started with</span>
         <MoneyInput
@@ -788,7 +825,9 @@ function CashStatusInline({ eventId, dayKey, startingCash, dayCashSales, disable
     );
   }
 
-  if (startingCash == null) {
+  // First day with no value and no prior carryover available — show the
+  // original "+ Set starting cash" call-to-action.
+  if (startingCash == null && !isCarryover) {
     if (disabled) return null;
     return (
       <button
@@ -800,22 +839,24 @@ function CashStatusInline({ eventId, dayKey, startingCash, dayCashSales, disable
     );
   }
 
-  const expected = startingCash + dayCashSales;
+  const displayedStart = startingCash != null ? startingCash : effectiveStartingCash;
+  const expected = displayedStart + dayCashSales;
+  const carryoverHint = isCarryover ? <span className="text-[11px] text-muted/80 italic"> (from previous day)</span> : null;
   if (disabled) {
     return (
-      <div className="px-3 flex items-center gap-1 text-[12px] text-muted self-start">
+      <div className="px-3 flex items-center gap-1 text-[12px] text-muted self-start flex-wrap">
         <Wallet size={12} />
-        <span>Cash on hand: started <span className="text-ink font-medium tabular-nums">{formatMoney(startingCash)}</span> · now <span className="text-ink font-medium tabular-nums">{formatMoney(expected)}</span></span>
+        <span>Cash on hand: started <span className="text-ink font-medium tabular-nums">{formatMoney(displayedStart)}</span>{carryoverHint} · now <span className="text-ink font-medium tabular-nums">{formatMoney(expected)}</span></span>
       </div>
     );
   }
   return (
     <button
       onClick={() => setEditing(true)}
-      className="px-3 flex items-center gap-1 text-[12px] text-muted active:opacity-60 self-start"
+      className="px-3 flex items-center gap-1 text-[12px] text-muted active:opacity-60 self-start flex-wrap text-left"
     >
       <Wallet size={12} />
-      <span>Cash on hand: started <span className="text-ink font-medium tabular-nums">{formatMoney(startingCash)}</span> · now <span className="text-ink font-medium tabular-nums">{formatMoney(expected)}</span></span>
+      <span>Cash on hand: started <span className="text-ink font-medium tabular-nums">{formatMoney(displayedStart)}</span>{carryoverHint} · now <span className="text-ink font-medium tabular-nums">{formatMoney(expected)}</span></span>
       <Pencil size={10} className="ml-1" />
     </button>
   );
