@@ -199,10 +199,13 @@ export default function SalePage() {
 
   const editable = !isDeleted && !eventClosed && !draftLockedToOther && !lockedByOther;
   // Money-affecting fields (price, qty, override, cash received, payment
-  // method, recipient, allocation) are only editable while the transaction is
-  // still in progress. Completed transactions allow only metadata edits
-  // (item name, host, notes).
+  // method, allocation) are only editable while the transaction is still in
+  // progress. Completed transactions allow item name/host, notes, and
+  // Venmo recipient reassignment — useful when funds were sent to the wrong
+  // host's Venmo. Payment method and amounts stay locked.
   const moneyEditable = editable && isInProgress;
+  const isDigitalOrSplit = paymentMethod === 'digital' || paymentMethod === 'split';
+  const recipientEditable = editable && (isInProgress || isDigitalOrSplit);
   const willBePending = overrideActive && discount > 0 && !allocation;
   // Rapid-entry items intentionally have no name — only host + price + qty are required.
   const itemsValid = items.length > 0 && items.every((it) =>
@@ -406,7 +409,8 @@ export default function SalePage() {
     await updateSale(eventId, saleId, {
       items,
       itemsSubtotal: itemsSubtotal(items),
-      notes
+      notes,
+      digitalRecipientHostId: isDigitalOrSplit ? (digitalRecipient || null) : (sale.digitalRecipientHostId ?? null)
     }).catch(() => {});
     // Build a structured per-field diff so the audit log can show "Reassigned
     // 'Books' from Rachel to Justin" instead of a generic "item hosts changed".
@@ -465,6 +469,18 @@ export default function SalePage() {
             ? 'Cleared the note'
             : 'Updated the note'
       });
+    }
+    if (isDigitalOrSplit) {
+      const prevRecipient = sale.digitalRecipientHostId || '';
+      const nextRecipient = digitalRecipient || '';
+      if (prevRecipient !== nextRecipient) {
+        changes.push({
+          kind: 'recipient.changed',
+          from: prevRecipient || null,
+          to: nextRecipient || null,
+          text: `Reassigned Venmo payment from ${hostNameOf(prevRecipient)} to ${hostNameOf(nextRecipient)}`
+        });
+      }
     }
 
     if (changes.length > 0) {
@@ -863,7 +879,7 @@ export default function SalePage() {
                   className="w-44 rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent disabled:opacity-60 text-[14px]"
                   value={digitalRecipient}
                   onChange={(e) => persistRecipient(e.target.value)}
-                  disabled={!moneyEditable}
+                  disabled={!recipientEditable}
                 >
                   <option value="" disabled>Pick recipient</option>
                   {hosts.map((h) => (
@@ -905,7 +921,7 @@ export default function SalePage() {
                     className="w-44 rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent disabled:opacity-60 text-[14px]"
                     value={digitalRecipient}
                     onChange={(e) => persistRecipient(e.target.value)}
-                    disabled={!moneyEditable}
+                    disabled={!recipientEditable}
                   >
                     <option value="" disabled>Pick recipient</option>
                     {hosts.map((h) => (

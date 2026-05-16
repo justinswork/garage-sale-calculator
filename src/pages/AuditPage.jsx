@@ -179,6 +179,18 @@ function ChangeLine({ change, hosts }) {
       </div>
     );
   }
+  if (change.kind === 'recipient.changed') {
+    const fromHost = hosts.find((h) => h.id === change.from);
+    const toHost = hosts.find((h) => h.id === change.to);
+    return (
+      <div className="flex items-center gap-1.5 text-[12px] flex-wrap">
+        <span>Reassigned Venmo payment from</span>
+        {fromHost ? <HostPill host={fromHost} hosts={hosts} size="sm" /> : <span className="text-muted">unknown</span>}
+        <span>to</span>
+        {toHost ? <HostPill host={toHost} hosts={hosts} size="sm" /> : <span className="text-muted">unknown</span>}
+      </div>
+    );
+  }
   if (change.kind === 'item.name.changed') {
     return (
       <div className="text-[12px]">
