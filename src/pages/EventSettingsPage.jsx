@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText } from 'lucide-react';
+import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText, Plus } from 'lucide-react';
 import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
 import { renameEvent, setEventStatus, deleteEvent, updateEventDetails } from '../data/events.js';
-import { renameHost } from '../data/hosts.js';
+import { renameHost, addPlaceholderHost } from '../data/hosts.js';
 import { recordAudit } from '../data/audit.js';
 import { removeRecentEvent } from '../utils/storage.js';
 
@@ -19,6 +19,9 @@ export default function EventSettingsPage() {
   const [name, setName] = useState(event.name);
   const [editingHostId, setEditingHostId] = useState(null);
   const [hostName, setHostName] = useState('');
+  const [newHostName, setNewHostName] = useState('');
+  const [addingHost, setAddingHost] = useState(false);
+  const [addHostError, setAddHostError] = useState('');
   const [copied, setCopied] = useState(false);
   const [startDate, setStartDate] = useState(event.startDate || '');
   const [endDate, setEndDate] = useState(event.endDate || '');
@@ -53,6 +56,33 @@ export default function EventSettingsPage() {
         byHostId: currentHost.id,
         meta: { previous: oldName, current: newName }
       });
+    }
+  };
+
+  const addNewHost = async (e) => {
+    e.preventDefault();
+    const trimmed = newHostName.trim();
+    if (!trimmed || addingHost) return;
+    if (hosts.length >= 99) {
+      setAddHostError('This event already has the maximum of 99 hosts.');
+      return;
+    }
+    setAddingHost(true);
+    setAddHostError('');
+    try {
+      const id = await addPlaceholderHost(event.id, { name: trimmed });
+      recordAudit(event.id, {
+        type: 'host.added',
+        summary: `Added ${trimmed} as a host`,
+        byUid: uid,
+        byHostId: currentHost.id,
+        meta: { hostId: id, name: trimmed, placeholder: true }
+      });
+      setNewHostName('');
+    } catch (err) {
+      setAddHostError(err.message || 'Could not add host');
+    } finally {
+      setAddingHost(false);
     }
   };
 
@@ -200,35 +230,65 @@ export default function EventSettingsPage() {
 
         <section className="card p-4 flex flex-col gap-2">
           <h3 className="text-[12px] uppercase tracking-wide text-muted">Hosts</h3>
-          {hosts.map((h) => (
-            <div key={h.id} className="flex items-center gap-2 py-1">
-              {editingHostId === h.id ? (
-                <>
-                  <input
-                    className="input flex-1"
-                    value={hostName}
-                    onChange={(e) => setHostName(e.target.value)}
-                    autoFocus
-                  />
-                  <button onClick={() => saveHostName(h.id)} className="text-accent font-semibold text-[14px] px-2">Save</button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1">{h.name}{h.id === currentHost.id ? ' (you)' : ''}</span>
-                  <button
-                    onClick={() => { setEditingHostId(h.id); setHostName(h.name); }}
-                    className="text-muted active:opacity-60 p-1"
-                    aria-label="Rename host"
-                  >
-                    <Pencil size={16} />
-                  </button>
-                </>
-              )}
+          {hosts.map((h) => {
+            const notJoined = !h.deviceUids?.length;
+            return (
+              <div key={h.id} className="flex items-center gap-2 py-1">
+                {editingHostId === h.id ? (
+                  <>
+                    <input
+                      className="input flex-1"
+                      value={hostName}
+                      onChange={(e) => setHostName(e.target.value)}
+                      autoFocus
+                    />
+                    <button onClick={() => saveHostName(h.id)} className="text-accent font-semibold text-[14px] px-2">Save</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 flex items-center gap-2 flex-wrap">
+                      <span>{h.name}{h.id === currentHost.id ? ' (you)' : ''}</span>
+                      {notJoined && (
+                        <span className="text-[11px] text-muted bg-canvas border border-hairline rounded-full px-2 py-0.5">
+                          not joined yet
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      onClick={() => { setEditingHostId(h.id); setHostName(h.name); }}
+                      className="text-muted active:opacity-60 p-1"
+                      aria-label="Rename host"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+          <form onSubmit={addNewHost} className="flex flex-col gap-2 pt-2 border-t border-hairline mt-1">
+            <div className="flex items-center gap-2">
+              <input
+                className="input flex-1"
+                placeholder="Add another host"
+                value={newHostName}
+                onChange={(e) => setNewHostName(e.target.value)}
+                disabled={addingHost}
+                autoCapitalize="words"
+              />
+              <button
+                type="submit"
+                disabled={addingHost || !newHostName.trim()}
+                className="btn-secondary py-2 px-3 flex items-center gap-1 text-[14px] disabled:opacity-50"
+              >
+                <Plus size={16} /> Add
+              </button>
             </div>
-          ))}
-          <div className="text-[12px] text-muted pt-1">
-            New hosts join via the event link.
-          </div>
+            {addHostError && <div className="text-red-600 text-[12px]">{addHostError}</div>}
+            <div className="text-[12px] text-muted">
+              Use this for someone whose items you'll be tracking but who may not be on the app. If they join later, they can tap their name on the join screen to claim it.
+            </div>
+          </form>
         </section>
 
         <section className="card p-4 flex flex-col gap-3">

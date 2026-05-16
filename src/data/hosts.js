@@ -33,6 +33,20 @@ export async function addHost(eventId, { name, uid }) {
   return id;
 }
 
+// Placeholder host — no device attached yet. Used when a joined host adds a
+// name from Settings for someone whose items will be tracked but who may
+// never sign in (a roommate, an out-of-town parent, etc.). The slot can be
+// claimed later by tapping the name on the join screen.
+export async function addPlaceholderHost(eventId, { name }) {
+  const id = shortId(8);
+  await setDoc(doc(hostsCol(eventId), id), {
+    name: name.trim(),
+    joinedAt: serverTimestamp(),
+    deviceUids: []
+  });
+  return id;
+}
+
 export async function attachDeviceToHost(eventId, hostId, uid) {
   await updateDoc(doc(hostsCol(eventId), hostId), {
     deviceUids: arrayUnion(uid)
