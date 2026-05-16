@@ -204,7 +204,7 @@ export default function EventSettingsPage() {
             <div className="flex items-center gap-2">
               <input
                 type="date"
-                className="input flex-1"
+                className="input flex-1 min-w-0"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 onBlur={() => persistDetail('startDate', startDate, 'start date')}
@@ -212,7 +212,7 @@ export default function EventSettingsPage() {
               <span className="text-muted text-[13px]">to</span>
               <input
                 type="date"
-                className="input flex-1"
+                className="input flex-1 min-w-0"
                 value={endDate}
                 min={startDate || undefined}
                 onChange={(e) => setEndDate(e.target.value)}
