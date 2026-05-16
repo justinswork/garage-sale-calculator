@@ -248,12 +248,12 @@ export default function EventHomePage() {
               {(totals.grandCash > 0 || totals.grandDigital > 0) && (
                 <div className="flex items-center gap-3 text-[12px] mt-2 flex-wrap">
                   <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-200" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-300" />
                     <span className="text-muted">Cash</span>
                     <span className="font-semibold tabular-nums">{formatMoney(totals.grandCash)}</span>
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-sky-200" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-sky-300" />
                     <span className="text-muted">Venmo</span>
                     <span className="font-semibold tabular-nums">{formatMoney(totals.grandDigital)}</span>
                   </span>
@@ -584,13 +584,13 @@ function DaySection({ day, hosts, eventId, hostName, startingCash, effectiveStar
           <div className="flex items-center gap-3 text-[11px] text-muted tabular-nums">
             {day.cashTotal > 0 && (
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-200" />
+                <span className="w-2 h-2 rounded-full bg-emerald-300" />
                 {formatMoney(day.cashTotal)} cash
               </span>
             )}
             {day.digitalTotal > 0 && (
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-sky-200" />
+                <span className="w-2 h-2 rounded-full bg-sky-300" />
                 {formatMoney(day.digitalTotal)} Venmo
               </span>
             )}

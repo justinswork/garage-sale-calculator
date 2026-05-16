@@ -162,12 +162,12 @@ export default function HostActivityPage() {
           {(data.cashEarned > 0 || data.digitalEarned > 0) && (
             <div className="flex items-center gap-3 text-[12px] flex-wrap">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-200" />
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-300" />
                 <span className="text-muted">From cash sales</span>
                 <span className="font-semibold tabular-nums">{formatMoney(data.cashEarned)}</span>
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-200" />
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-300" />
                 <span className="text-muted">From Venmo sales</span>
                 <span className="font-semibold tabular-nums">{formatMoney(data.digitalEarned)}</span>
               </span>
