@@ -421,7 +421,7 @@ function DaySection({ day, hosts, eventId, hostName, startingCash, effectiveStar
             <span className="text-muted font-semibold">{formatMoney(day.total)}</span>
           )}
           <span className="text-[11px] text-muted">
-            {day.sales.length} txn{day.sales.length === 1 ? '' : 's'}
+            {day.sales.length} sale{day.sales.length === 1 ? '' : 's'}
           </span>
         </div>
       </summary>
