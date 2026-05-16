@@ -104,12 +104,12 @@ export default function ReportPage() {
           {(data.grandCash > 0 || data.grandDigital > 0) && (
             <div className="flex items-center gap-3 text-[12px] mt-2 flex-wrap">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-700" />
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-200" />
                 <span className="text-muted">Cash</span>
                 <span className="font-semibold tabular-nums">{formatMoney(data.grandCash)}</span>
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-700" />
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-200" />
                 <span className="text-muted">Venmo</span>
                 <span className="font-semibold tabular-nums">{formatMoney(data.grandDigital)}</span>
               </span>
@@ -147,14 +147,14 @@ export default function ReportPage() {
                   <div className="flex items-center gap-3 text-[12px] mt-1 flex-wrap">
                     {day.cashTotal > 0 && (
                       <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-700" />
+                        <span className="w-2 h-2 rounded-full bg-emerald-200" />
                         <span className="text-muted">Cash</span>
                         <span className="font-semibold tabular-nums">{formatMoney(day.cashTotal)}</span>
                       </span>
                     )}
                     {day.digitalTotal > 0 && (
                       <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-sky-700" />
+                        <span className="w-2 h-2 rounded-full bg-sky-200" />
                         <span className="text-muted">Venmo</span>
                         <span className="font-semibold tabular-nums">{formatMoney(day.digitalTotal)}</span>
                       </span>

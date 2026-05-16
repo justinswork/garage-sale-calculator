@@ -2,15 +2,15 @@
 // (Venmo) portions. Used on the event home page (overall + per day) and on
 // the host activity page (per host).
 //
-// Colors match the rest of the app's payment-method palette: emerald-700 for
-// cash and sky-700 for Venmo (same shades used for paymentColor(method).icon
-// and the sale-row indicators, so the donut/bar read as "cash" and "Venmo"
-// at a glance).
+// Colors echo the cash/Venmo buttons in the settle-up section, using their
+// border shade (emerald-200 / sky-200) as the fill. Without dark text on
+// top of the slice to add contrast (like the buttons have), the lighter
+// emerald-100 / sky-100 fills looked washed out on their own.
 
-// emerald-700 / sky-700 in raw RGB so they can live inside a conic-gradient
+// emerald-200 / sky-200 in raw RGB so they can live inside a conic-gradient
 // (Tailwind class-based colors can't be interpolated into inline styles).
-const CASH_RGB = 'rgb(4 120 87)';
-const DIGITAL_RGB = 'rgb(3 105 161)';
+const CASH_RGB = 'rgb(167 243 208)';
+const DIGITAL_RGB = 'rgb(186 230 253)';
 
 // Two-slice donut showing cash vs digital proportion. Hidden when there's
 // no money at all (an empty ring is meaningless), but renders even in 100/0
@@ -57,8 +57,8 @@ export function CashVsDigitalBar({ cash, digital, className = '' }) {
   const cashPct = (cash / total) * 100;
   return (
     <div className={`h-1 w-full rounded-full overflow-hidden flex bg-canvas ${className}`}>
-      <div className="bg-emerald-700" style={{ width: `${cashPct}%` }} />
-      <div className="bg-sky-700" style={{ width: `${100 - cashPct}%` }} />
+      <div className="bg-emerald-200" style={{ width: `${cashPct}%` }} />
+      <div className="bg-sky-200" style={{ width: `${100 - cashPct}%` }} />
     </div>
   );
 }
