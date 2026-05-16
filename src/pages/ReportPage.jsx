@@ -4,7 +4,7 @@ import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
 import { formatMoney } from '../utils/money.js';
 import { localDayKey, formatDayLabel, formatTime } from '../utils/dates.js';
-import { resolvePerHost, isPending, effectiveTotal, computeSettleUp, applySettlements, getCashAmount, applyDailyCashCarryover } from '../utils/sale.js';
+import { resolvePerHost, isPending, effectiveTotal, computeSettleUp, applySettlements, getCashAmount, getDigitalAmount, applyDailyCashCarryover } from '../utils/sale.js';
 
 export default function ReportPage() {
   const { event, hosts, sales, settlements } = useEvent();
@@ -50,7 +50,7 @@ export default function ReportPage() {
       ]);
     }
     rows.push([]);
-    rows.push(['Day', 'Starting cash', 'Cash sales', 'Cash on hand', 'Total sales']);
+    rows.push(['Day', 'Starting cash', 'Cash sales', 'Venmo sales', 'Cash on hand', 'Total sales']);
     for (const day of daysWithCarryover) {
       // Starting cash column reflects the effective value (explicit OR
       // carried over from the prior day) so the spreadsheet matches what
@@ -60,6 +60,7 @@ export default function ReportPage() {
         formatDayLabel(day.dayKey),
         formatMoney(startCash),
         formatMoney(day.cashTotal),
+        formatMoney(day.digitalTotal),
         formatMoney(startCash + day.cashTotal),
         formatMoney(day.total)
       ]);
@@ -100,6 +101,20 @@ export default function ReportPage() {
             {data.pendingCount > 0 && ` · ${data.pendingCount} pending excluded`}
             {data.deletedCount > 0 && ` · ${data.deletedCount} deleted excluded`}
           </div>
+          {(data.grandCash > 0 || data.grandDigital > 0) && (
+            <div className="flex items-center gap-3 text-[12px] mt-2 flex-wrap">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-700" />
+                <span className="text-muted">Cash</span>
+                <span className="font-semibold tabular-nums">{formatMoney(data.grandCash)}</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-700" />
+                <span className="text-muted">Venmo</span>
+                <span className="font-semibold tabular-nums">{formatMoney(data.grandDigital)}</span>
+              </span>
+            </div>
+          )}
         </section>
 
         <section className="card p-4">
@@ -128,6 +143,24 @@ export default function ReportPage() {
                 <div className="text-[12px] text-muted">
                   {day.sales.length} transaction{day.sales.length === 1 ? '' : 's'}
                 </div>
+                {(day.cashTotal > 0 || day.digitalTotal > 0) && (
+                  <div className="flex items-center gap-3 text-[12px] mt-1 flex-wrap">
+                    {day.cashTotal > 0 && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-700" />
+                        <span className="text-muted">Cash</span>
+                        <span className="font-semibold tabular-nums">{formatMoney(day.cashTotal)}</span>
+                      </span>
+                    )}
+                    {day.digitalTotal > 0 && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-sky-700" />
+                        <span className="text-muted">Venmo</span>
+                        <span className="font-semibold tabular-nums">{formatMoney(day.digitalTotal)}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
                 {startCashIsSet && (
                   <div className="flex items-center justify-between text-[12px] text-muted pt-1">
                     <span>
@@ -206,6 +239,8 @@ function buildReport(sales, hosts) {
   const perHost = Object.fromEntries(hosts.map((h) => [h.id, 0]));
   const byDayMap = {};
   let grand = 0;
+  let grandCash = 0;
+  let grandDigital = 0;
   let pendingCount = 0;
   let deletedCount = 0;
   const includedSales = [];
@@ -228,9 +263,14 @@ function buildReport(sales, hosts) {
     }
     const ts = s.createdAt?.toDate ? s.createdAt.toDate() : new Date();
     const key = localDayKey(ts);
-    if (!byDayMap[key]) byDayMap[key] = { dayKey: key, total: 0, cashTotal: 0, sales: [], perHost: {} };
+    if (!byDayMap[key]) byDayMap[key] = { dayKey: key, total: 0, cashTotal: 0, digitalTotal: 0, sales: [], perHost: {} };
+    const cash = getCashAmount(s);
+    const digital = getDigitalAmount(s);
+    grandCash += cash;
+    grandDigital += digital;
     byDayMap[key].total += total;
-    byDayMap[key].cashTotal += getCashAmount(s);
+    byDayMap[key].cashTotal += cash;
+    byDayMap[key].digitalTotal += digital;
     byDayMap[key].sales.push(s);
     for (const [hid, amt] of Object.entries(finalPerHost)) {
       byDayMap[key].perHost[hid] = (byDayMap[key].perHost[hid] || 0) + amt;
@@ -238,7 +278,7 @@ function buildReport(sales, hosts) {
     includedSales.push(s);
   }
   const byDay = Object.values(byDayMap).sort((a, b) => (a.dayKey < b.dayKey ? -1 : 1));
-  return { grand, perHost, byDay, pendingCount, deletedCount, includedSales };
+  return { grand, grandCash, grandDigital, perHost, byDay, pendingCount, deletedCount, includedSales };
 }
 
 function csvEscape(val) {

@@ -4,6 +4,7 @@ import { ArrowRight, Banknote, Smartphone, AlertTriangle, Wallet } from 'lucide-
 import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
 import HostPill, { HostDot } from '../components/HostPill.jsx';
+import { CashVsDigitalPie } from '../components/CashVsDigital.jsx';
 import { paymentColor } from '../utils/colors.js';
 import { formatMoney } from '../utils/money.js';
 import { formatTime, localDayKey, formatDayLabel } from '../utils/dates.js';
@@ -22,6 +23,12 @@ export default function HostActivityPage() {
     let totalEarned = 0;
     let cashFromSales = 0;
     let digitalFromSales = 0;
+    // "Earned" split breaks totalEarned into the share of cash- vs Venmo-
+    // paid buyer dollars. Sums to totalEarned (whereas cashFromSales/
+    // digitalFromSales reflect immediate receipt and may differ for the
+    // recipient host until settle-up).
+    let cashEarned = 0;
+    let digitalEarned = 0;
     let pendingCount = 0;
     for (const s of sales) {
       if (s.deletedAt) continue;
@@ -36,6 +43,8 @@ export default function HostActivityPage() {
         totalEarned += share.total;
         cashFromSales += received.cash;
         digitalFromSales += received.digital;
+        cashEarned += share.cash;
+        digitalEarned += share.digital;
       }
     }
     saleEntries.sort((a, b) => {
@@ -110,6 +119,8 @@ export default function HostActivityPage() {
       totalEarned,
       cashFromSales,
       digitalFromSales,
+      cashEarned,
+      digitalEarned,
       pendingCount,
       cashNow,
       digitalNow,
@@ -137,12 +148,31 @@ export default function HostActivityPage() {
       <main className="flex-1 px-4 py-4 flex flex-col gap-4">
         <section className="card p-5 flex flex-col gap-2">
           <HostPill host={host} hosts={hosts} you={isYou} />
-          <div className="text-[36px] font-bold leading-none tracking-tight tabular-nums">
-            {formatMoney(data.totalEarned)}
+          <div className="flex items-start gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="text-[36px] font-bold leading-none tracking-tight tabular-nums">
+                {formatMoney(data.totalEarned)}
+              </div>
+              <div className="text-[13px] text-muted mt-1">
+                earned across {data.saleEntries.length - data.pendingCount} transaction{data.saleEntries.length - data.pendingCount === 1 ? '' : 's'}
+              </div>
+            </div>
+            <CashVsDigitalPie cash={data.cashEarned} digital={data.digitalEarned} />
           </div>
-          <div className="text-[13px] text-muted">
-            earned across {data.saleEntries.length - data.pendingCount} transaction{data.saleEntries.length - data.pendingCount === 1 ? '' : 's'}
-          </div>
+          {(data.cashEarned > 0 || data.digitalEarned > 0) && (
+            <div className="flex items-center gap-3 text-[12px] flex-wrap">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-700" />
+                <span className="text-muted">From cash sales</span>
+                <span className="font-semibold tabular-nums">{formatMoney(data.cashEarned)}</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-700" />
+                <span className="text-muted">From Venmo sales</span>
+                <span className="font-semibold tabular-nums">{formatMoney(data.digitalEarned)}</span>
+              </span>
+            </div>
+          )}
           <div className="border-t border-hairline pt-3 flex flex-col gap-1.5 text-[13px]">
             <Row label="Cash now" value={data.cashNow} bold />
             <Row label="Venmo now" value={data.digitalNow} bold />

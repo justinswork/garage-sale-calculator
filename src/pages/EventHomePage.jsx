@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Plus, AlertTriangle, Share2, Pencil, Wallet, X, Tag, Users, ChevronDown, ArrowRight, Smartphone, Banknote, Lock, Check, Calendar, MapPin, RefreshCw } from 'lucide-react';
 import HostPill, { HostDot } from '../components/HostPill.jsx';
 import MoneyInput from '../components/MoneyInput.jsx';
+import { CashVsDigitalPie, CashVsDigitalBar } from '../components/CashVsDigital.jsx';
 import { paymentColor } from '../utils/colors.js';
 import { useEvent } from '../contexts/EventContext.jsx';
 import { createSale } from '../data/sales.js';
@@ -10,7 +11,7 @@ import { setDailyStartingCash, clearDailyStartingCash } from '../data/events.js'
 import EventHeader from '../components/EventHeader.jsx';
 import { formatMoney, parseMoney } from '../utils/money.js';
 import { localDayKey, formatDayLabel, formatTime } from '../utils/dates.js';
-import { resolvePerHost, isPending, effectiveTotal, computeSettleUp, applySettlements, getCashAmount, applyDailyCashCarryover } from '../utils/sale.js';
+import { resolvePerHost, isPending, effectiveTotal, computeSettleUp, applySettlements, getCashAmount, getDigitalAmount, applyDailyCashCarryover } from '../utils/sale.js';
 import { recordSettlement, unrecordSettlement } from '../data/settlements.js';
 import { recordAudit } from '../data/audit.js';
 
@@ -84,7 +85,7 @@ export default function EventHomePage() {
     const list = totals.byDay;
     if (list.some((d) => d.dayKey === todayKey)) return list;
     return [
-      { dayKey: todayKey, total: 0, sales: [] },
+      { dayKey: todayKey, total: 0, cashTotal: 0, digitalTotal: 0, sales: [] },
       ...list
     ];
   }, [totals.byDay]);
@@ -196,15 +197,34 @@ export default function EventHomePage() {
         ) : (
           <>
             <div className="card p-5 flex flex-col gap-1">
-              <div className="text-[44px] font-bold leading-none tracking-tight tabular-nums">
-                {formatMoney(totals.grand)}
+              <div className="flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[44px] font-bold leading-none tracking-tight tabular-nums">
+                    {formatMoney(totals.grand)}
+                  </div>
+                  <div className="text-[13px] text-muted mt-1">
+                    {totals.completedCount} transaction{totals.completedCount === 1 ? '' : 's'}
+                    {hosts.length > 1 && (
+                      <> · <span className="text-ink font-medium">{formatMoney(totals.perHost[currentHost.id] || 0)}</span> is yours</>
+                    )}
+                  </div>
+                </div>
+                <CashVsDigitalPie cash={totals.grandCash} digital={totals.grandDigital} />
               </div>
-              <div className="text-[13px] text-muted">
-                {totals.completedCount} transaction{totals.completedCount === 1 ? '' : 's'}
-                {hosts.length > 1 && (
-                  <> · <span className="text-ink font-medium">{formatMoney(totals.perHost[currentHost.id] || 0)}</span> is yours</>
-                )}
-              </div>
+              {(totals.grandCash > 0 || totals.grandDigital > 0) && (
+                <div className="flex items-center gap-3 text-[12px] mt-2 flex-wrap">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-700" />
+                    <span className="text-muted">Cash</span>
+                    <span className="font-semibold tabular-nums">{formatMoney(totals.grandCash)}</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-sky-700" />
+                    <span className="text-muted">Venmo</span>
+                    <span className="font-semibold tabular-nums">{formatMoney(totals.grandDigital)}</span>
+                  </span>
+                </div>
+              )}
               {pendingCount > 0 && (
                 <Link
                   to={`/e/${event.id}#pending`}
@@ -479,22 +499,41 @@ function DaySection({ day, hosts, eventId, hostName, startingCash, effectiveStar
     : day.sales.filter((s) => (s.paymentMethod || 'cash') === paymentFilter);
   return (
     <details open={defaultOpen} className="flex flex-col gap-2 group">
-      <summary className="flex items-center justify-between px-2 py-1 cursor-pointer list-none active:opacity-60">
-        <div className="flex items-center gap-1.5">
-          <ChevronDown
-            size={14}
-            className="text-muted transition-transform -rotate-90 group-open:rotate-0"
-          />
-          <h3 className="text-[13px] font-semibold">{formatDayLabel(day.dayKey)}</h3>
+      <summary className="flex flex-col gap-1.5 px-2 py-1 cursor-pointer list-none active:opacity-60">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <ChevronDown
+              size={14}
+              className="text-muted transition-transform -rotate-90 group-open:rotate-0"
+            />
+            <h3 className="text-[13px] font-semibold">{formatDayLabel(day.dayKey)}</h3>
+          </div>
+          <div className="flex items-center gap-2 text-[13px] tabular-nums">
+            {day.sales.length > 0 && (
+              <span className="text-muted font-semibold">{formatMoney(day.total)}</span>
+            )}
+            <span className="text-[11px] text-muted">
+              {day.sales.length} sale{day.sales.length === 1 ? '' : 's'}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-[13px] tabular-nums">
-          {day.sales.length > 0 && (
-            <span className="text-muted font-semibold">{formatMoney(day.total)}</span>
-          )}
-          <span className="text-[11px] text-muted">
-            {day.sales.length} sale{day.sales.length === 1 ? '' : 's'}
-          </span>
-        </div>
+        <CashVsDigitalBar cash={day.cashTotal} digital={day.digitalTotal} />
+        {(day.cashTotal > 0 || day.digitalTotal > 0) && (
+          <div className="flex items-center gap-3 text-[11px] text-muted tabular-nums">
+            {day.cashTotal > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-700" />
+                {formatMoney(day.cashTotal)} cash
+              </span>
+            )}
+            {day.digitalTotal > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-sky-700" />
+                {formatMoney(day.digitalTotal)} Venmo
+              </span>
+            )}
+          </div>
+        )}
       </summary>
       <div className="flex flex-col gap-2">
         <CashStatusInline
@@ -1032,12 +1071,14 @@ function computeTotals(sales, hosts) {
   const perHost = Object.fromEntries(hosts.map((h) => [h.id, 0]));
   const byDayMap = {};
   let grand = 0;
+  let grandCash = 0;
+  let grandDigital = 0;
   let completedCount = 0;
   let pendingValue = 0;
   for (const s of sales) {
     const ts = s.createdAt?.toDate ? s.createdAt.toDate() : new Date();
     const key = localDayKey(ts);
-    if (!byDayMap[key]) byDayMap[key] = { dayKey: key, total: 0, cashTotal: 0, sales: [] };
+    if (!byDayMap[key]) byDayMap[key] = { dayKey: key, total: 0, cashTotal: 0, digitalTotal: 0, sales: [] };
     byDayMap[key].sales.push(s);
 
     if (isPending(s)) {
@@ -1053,9 +1094,15 @@ function computeTotals(sales, hosts) {
     for (const [hid, amt] of Object.entries(finalPerHost)) {
       perHost[hid] = (perHost[hid] || 0) + amt;
     }
+    const cash = getCashAmount(s);
+    const digital = getDigitalAmount(s);
+    grandCash += cash;
+    grandDigital += digital;
     byDayMap[key].total += total;
-    byDayMap[key].cashTotal += getCashAmount(s);
+    byDayMap[key].cashTotal += cash;
+    byDayMap[key].digitalTotal += digital;
   }
   const byDay = Object.values(byDayMap).sort((a, b) => (a.dayKey < b.dayKey ? 1 : -1));
-  return { grand, perHost, byDay, completedCount, pendingValue };
+  return { grand, grandCash, grandDigital, perHost, byDay, completedCount, pendingValue };
 }
+
