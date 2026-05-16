@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, AlertTriangle, Share2, Pencil, Wallet, X, Tag, Users, ChevronDown, ArrowRight, Smartphone, Banknote, Lock, Check, Calendar, MapPin } from 'lucide-react';
+import { Plus, AlertTriangle, Share2, Pencil, Wallet, X, Tag, Users, ChevronDown, ArrowRight, Smartphone, Banknote, Lock, Check, Calendar, MapPin, RefreshCw } from 'lucide-react';
 import HostPill, { HostDot } from '../components/HostPill.jsx';
 import MoneyInput from '../components/MoneyInput.jsx';
 import { paymentColor } from '../utils/colors.js';
@@ -22,6 +22,44 @@ export default function EventHomePage() {
   const [paymentFilter, setPaymentFilter] = useState('all');
 
   const hostName = (id) => hosts.find((h) => h.id === id)?.name || 'Unknown';
+
+  // Pull-to-refresh: only engages when the page is at scrollTop 0 and the
+  // user drags down past the threshold. Just reloads the page — Firestore
+  // subscriptions re-establish on mount, and a fresh load also picks up any
+  // new service-worker code. Works reliably on installed Android PWAs;
+  // iOS browser overscroll may visually interfere, but the threshold check
+  // still fires and the explicit refresh button is the reliable fallback.
+  const PULL_THRESHOLD = 70;
+  const PULL_MAX = 120;
+  const [pullY, setPullY] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const pullStartYRef = useRef(null);
+
+  const refresh = () => {
+    setRefreshing(true);
+    window.location.reload();
+  };
+
+  const onTouchStart = (e) => {
+    if (window.scrollY === 0 && !refreshing) {
+      pullStartYRef.current = e.touches[0].clientY;
+    } else {
+      pullStartYRef.current = null;
+    }
+  };
+  const onTouchMove = (e) => {
+    if (pullStartYRef.current == null) return;
+    const dy = e.touches[0].clientY - pullStartYRef.current;
+    setPullY(dy > 0 ? Math.min(dy, PULL_MAX) : 0);
+  };
+  const onTouchEnd = () => {
+    if (pullY > PULL_THRESHOLD) {
+      refresh();
+    } else {
+      setPullY(0);
+    }
+    pullStartYRef.current = null;
+  };
 
   const { liveSales, drafts, pendingCount } = useMemo(() => {
     const live = [];
@@ -94,12 +132,45 @@ export default function EventHomePage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-canvas pb-28">
+    <div
+      className="min-h-screen flex flex-col bg-canvas pb-28"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+    >
       <EventHeader rightSlot={
-        <button onClick={share} className="p-2 -mr-1 text-muted active:opacity-60" aria-label="Share event">
-          <Share2 size={20} />
-        </button>
+        <div className="flex items-center -mr-1">
+          <button
+            onClick={refresh}
+            disabled={refreshing}
+            className="p-2 text-muted active:opacity-60 disabled:opacity-40"
+            aria-label="Refresh"
+          >
+            <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
+          </button>
+          <button onClick={share} className="p-2 text-muted active:opacity-60" aria-label="Share event">
+            <Share2 size={20} />
+          </button>
+        </div>
       } />
+
+      {(pullY > 0 || refreshing) && (
+        <div
+          className="overflow-hidden flex items-center justify-center text-muted text-[12px] gap-2 transition-[height] duration-150"
+          style={{
+            height: refreshing ? 44 : Math.round(pullY * 0.5),
+            opacity: refreshing ? 1 : Math.min(pullY / PULL_THRESHOLD, 1)
+          }}
+        >
+          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+          <span>
+            {refreshing
+              ? 'Refreshing…'
+              : pullY > PULL_THRESHOLD ? 'Release to refresh' : 'Pull to refresh'}
+          </span>
+        </div>
+      )}
 
       <main className="flex-1 px-4 py-4 flex flex-col gap-4">
         {event.status === 'closed' && (
