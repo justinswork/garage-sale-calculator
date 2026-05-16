@@ -13,6 +13,8 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
+    "corpus:build": "node --env-file=.secret.local scripts/build-corpus.mjs",
+    "corpus:build:dry": "node --env-file=.secret.local scripts/build-corpus.mjs --dry-run",
     "test": "vitest run"
   },
   "dependencies": {
