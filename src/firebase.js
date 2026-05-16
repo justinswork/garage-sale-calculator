@@ -9,6 +9,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager
 } from 'firebase/firestore';
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 
 const config = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -26,3 +27,11 @@ export const auth = initializeAuth(app, {
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
+
+// The deployed function lives in us-central1 (see functions/src/index.ts).
+// For local dev, set VITE_FIREBASE_FUNCTIONS_EMULATOR=true in .env.local;
+// the rest of the app continues to hit live Auth/Firestore.
+export const functions = getFunctions(app, 'us-central1');
+if (import.meta.env.DEV && import.meta.env.VITE_FIREBASE_FUNCTIONS_EMULATOR === 'true') {
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+}

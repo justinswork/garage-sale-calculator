@@ -8,6 +8,7 @@ import ReportPage from './pages/ReportPage.jsx';
 import AuditPage from './pages/AuditPage.jsx';
 import EventSettingsPage from './pages/EventSettingsPage.jsx';
 import HostActivityPage from './pages/HostActivityPage.jsx';
+import PriceHelperPage from './pages/PriceHelperPage.jsx';
 import Loader from './components/Loader.jsx';
 
 export default function App() {
@@ -42,6 +43,7 @@ function Gate() {
         <Route path="audit" element={<AuditPage />} />
         <Route path="settings" element={<EventSettingsPage />} />
         <Route path="hosts/:hostId" element={<HostActivityPage />} />
+        <Route path="price-helper" element={<PriceHelperPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

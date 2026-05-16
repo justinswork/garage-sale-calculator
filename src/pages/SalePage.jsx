@@ -699,6 +699,7 @@ export default function SalePage() {
               />
             )}
 
+
             {items.length > 0 ? (
               <section className="flex flex-col gap-2">
                 <div className="flex items-baseline justify-between px-1">
