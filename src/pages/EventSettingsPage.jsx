@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText, Plus } from 'lucide-react';
+import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText, Plus, Navigation } from 'lucide-react';
 import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
 import { renameEvent, setEventStatus, deleteEvent, updateEventDetails } from '../data/events.js';
@@ -27,6 +27,24 @@ export default function EventSettingsPage() {
   const [endDate, setEndDate] = useState(event.endDate || '');
   const [location, setLocation] = useState(event.location || '');
   const [eventNotes, setEventNotes] = useState(event.notes || '');
+
+  // Branch by platform so the OS picks the navigation app:
+  //   - Android: `geo:` URI triggers the system app-chooser (or opens the
+  //     user's default maps app if they've set one).
+  //   - iOS: no system-level chooser exists; deep-link to Apple Maps, the
+  //     OS default.
+  //   - Desktop / other: Google Maps universal URL opens in a new tab.
+  // iPads on iPadOS 13+ default Safari to a macOS UA and fall through to
+  // the desktop branch — still functional, just non-optimal.
+  const mapsUrl = useMemo(() => {
+    const trimmed = (location || '').trim();
+    if (!trimmed) return null;
+    const encoded = encodeURIComponent(trimmed);
+    const ua = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : '';
+    if (/Android/i.test(ua)) return `geo:0,0?q=${encoded}`;
+    if (/iPhone|iPad|iPod/i.test(ua)) return `https://maps.apple.com/?q=${encoded}`;
+    return `https://www.google.com/maps/search/?api=1&query=${encoded}`;
+  }, [location]);
 
   const persistDetail = async (field, value, label) => {
     const previous = event[field] || '';
@@ -205,13 +223,27 @@ export default function EventSettingsPage() {
             <span className="text-[12px] text-muted flex items-center gap-1.5">
               <MapPin size={12} /> Location
             </span>
-            <input
-              className="input"
-              placeholder="Address or neighborhood"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              onBlur={() => persistDetail('location', location.trim(), 'location')}
-            />
+            <div className="flex items-center gap-2">
+              <input
+                className="input flex-1 min-w-0"
+                placeholder="Address or neighborhood"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                onBlur={() => persistDetail('location', location.trim(), 'location')}
+              />
+              {mapsUrl && (
+                <a
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary py-3 px-3 flex items-center gap-1.5 text-[14px] shrink-0"
+                  aria-label="Open in maps"
+                >
+                  <Navigation size={16} />
+                  Maps
+                </a>
+              )}
+            </div>
           </label>
 
           <label className="flex flex-col gap-1.5">
