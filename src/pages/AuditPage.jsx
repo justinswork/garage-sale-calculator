@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   Plus, Check, Trash2, RotateCcw, Pencil, X, AlertTriangle,
   ArrowRight, Wallet, Lock, Unlock, Users, ChevronDown
@@ -49,6 +49,7 @@ const TX_LINK_TYPES = new Set([
 
 export default function AuditPage() {
   const { event, hosts, audit } = useEvent();
+  const location = useLocation();
 
   // Group entries by local calendar day for readability. Entries without a
   // resolved timestamp (just created, server hasn't returned yet) bucket as
@@ -85,6 +86,7 @@ export default function AuditPage() {
                     entry={entry}
                     hosts={hosts}
                     eventId={event.id}
+                    fromPath={location.pathname}
                   />
                 ))}
               </div>
@@ -100,7 +102,7 @@ export default function AuditPage() {
   );
 }
 
-function AuditEntryRow({ entry, hosts, eventId }) {
+function AuditEntryRow({ entry, hosts, eventId, fromPath }) {
   const style = TYPE_STYLES[entry.type] || FALLBACK_STYLE;
   const Icon = style.icon;
   const actor = entry.byHostId ? hosts.find((h) => h.id === entry.byHostId) : null;
@@ -134,6 +136,7 @@ function AuditEntryRow({ entry, hosts, eventId }) {
   const head = linkable ? (
     <Link
       to={`/e/${eventId}/sale/${saleId}`}
+      state={{ from: fromPath }}
       className="flex items-center gap-3 p-3 active:opacity-70"
     >
       {headBody}

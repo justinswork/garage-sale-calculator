@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 // as abandoned and another host can take over.
 const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 const LOCK_HEARTBEAT_MS = 60 * 1000;
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Trash2, Plus, X, Check, AlertTriangle, RotateCcw, Sparkles,
   Pencil, MessageSquarePlus, Tag, Banknote, Smartphone, Wallet, Lock, ChevronLeft, ChevronDown, ArrowRight
@@ -33,6 +33,11 @@ import { shortId } from '../utils/id.js';
 export default function SalePage() {
   const { eventId, saleId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // When a Link to this page sets location.state.from, the back arrow returns
+  // to that page (e.g., the host activity page) instead of always jumping to
+  // the event home. Deep links / page reloads fall back to event home.
+  const backTo = location.state?.from || `/e/${eventId}`;
   const { event, hosts, currentHost, uid, saleNumberMap } = useEvent();
   const [sale, setSale] = useState(undefined);
   const [quickAdds, setQuickAdds] = useState([]);
@@ -497,12 +502,12 @@ export default function SalePage() {
         meta: { saleId, changes }
       });
     }
-    navigate(`/e/${eventId}`);
+    navigate(backTo);
   };
 
   const cancelChanges = () => {
     // Local state goes away on unmount. Firestore was never touched (deferred).
-    navigate(`/e/${eventId}`);
+    navigate(backTo);
   };
 
   // -------- top-level actions --------
@@ -656,7 +661,7 @@ export default function SalePage() {
           if (isPendingState) return prefix + 'Resolve transaction';
           return prefix + 'Transaction';
         })()}
-        backTo={`/e/${eventId}`}
+        backTo={backTo}
         rightSlot={
           eventClosed ? null
             : isDeleted ? (

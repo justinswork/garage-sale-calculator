@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { ArrowRight, Banknote, Smartphone, AlertTriangle, Wallet } from 'lucide-react';
 import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
@@ -11,6 +11,7 @@ import { computeHostShare, computeReceivedAtSale, isPending, effectiveTotal } fr
 
 export default function HostActivityPage() {
   const { eventId, hostId } = useParams();
+  const location = useLocation();
   const { event, hosts, sales, saleNumberMap, settlements, currentHost } = useEvent();
 
   const host = hosts.find((h) => h.id === hostId);
@@ -199,6 +200,7 @@ export default function HostActivityPage() {
                 saleNumber={saleNumberMap[sale.id]}
                 showOwedHints={data.hasOpenBalance}
                 hostId={host.id}
+                fromPath={location.pathname}
               />
             ))
           )}
@@ -231,7 +233,7 @@ function Row({ label, value, bold }) {
   );
 }
 
-function ShareRow({ sale, share, received, eventId, saleNumber, showOwedHints, hostId }) {
+function ShareRow({ sale, share, received, eventId, saleNumber, showOwedHints, hostId, fromPath }) {
   const time = sale.createdAt?.toDate ? sale.createdAt.toDate() : new Date();
   const day = formatDayLabel(localDayKey(time));
   const method = sale.paymentMethod || 'cash';
@@ -252,6 +254,7 @@ function ShareRow({ sale, share, received, eventId, saleNumber, showOwedHints, h
   return (
     <Link
       to={`/e/${eventId}/sale/${sale.id}`}
+      state={{ from: fromPath }}
       className="card p-3 flex items-center gap-3 active:opacity-70"
     >
       <div className={`w-10 h-10 rounded-xl ${c.bg} ${c.icon} flex items-center justify-center shrink-0`}>
