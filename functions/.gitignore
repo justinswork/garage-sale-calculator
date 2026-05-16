@@ -1,6 +1,5 @@
 node_modules/
 lib/
-prompts/
 .runtimeconfig.json
 .secret.local
 *.log

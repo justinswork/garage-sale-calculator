@@ -8,5 +8,9 @@ dist
 .vscode
 .idea
 memory/
-.claude/settings.local.json
+
+# Claude Code tooling — personal to each developer's environment.
+.claude/
+.agents/
+skills-lock.json
 

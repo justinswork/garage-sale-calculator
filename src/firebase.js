@@ -9,6 +9,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager
 } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 
 const config = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -26,3 +27,4 @@ export const auth = initializeAuth(app, {
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
+export const functions = getFunctions(app);

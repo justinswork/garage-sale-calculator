@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, AlertTriangle, Share2, Pencil, Wallet, X, Tag, Users, ChevronDown, ArrowRight, Smartphone, Banknote, Lock, Check, Calendar, MapPin, RefreshCw } from 'lucide-react';
+import { Plus, AlertTriangle, Share2, Pencil, Wallet, X, Tag, Users, ChevronDown, ArrowRight, Smartphone, Banknote, Lock, Check, Calendar, MapPin, RefreshCw, Sparkles } from 'lucide-react';
 import HostPill, { HostDot } from '../components/HostPill.jsx';
 import MoneyInput from '../components/MoneyInput.jsx';
 import { CashVsDigitalPie, CashVsDigitalBar } from '../components/CashVsDigital.jsx';
 import { paymentColor } from '../utils/colors.js';
 import { useEvent } from '../contexts/EventContext.jsx';
 import { createSale } from '../data/sales.js';
+import { isAtFreeLimit, FREE_SALE_LIMIT } from '../data/billing.js';
+import UpgradeModal from '../components/UpgradeModal.jsx';
 import { setDailyStartingCash, clearDailyStartingCash } from '../data/events.js';
 import EventHeader from '../components/EventHeader.jsx';
 import { formatMoney, parseMoney } from '../utils/money.js';
@@ -21,6 +23,30 @@ export default function EventHomePage() {
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState('all');
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [upgradedToast, setUpgradedToast] = useState(false);
+
+  // Stripe Checkout success-redirect carries ?upgraded=1. The webhook is
+  // what actually flips event.purchased server-side, but the query param
+  // is a hint that we should show a confirmation here. Strip it from the
+  // URL so refresh doesn't re-trigger the toast.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('upgraded') === '1') {
+      setUpgradedToast(true);
+      params.delete('upgraded');
+      const qs = params.toString();
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`
+      );
+      const t = setTimeout(() => setUpgradedToast(false), 4000);
+      return () => clearTimeout(t);
+    }
+  }, []);
+
+  const atFreeLimit = isAtFreeLimit({ event, sales });
 
   const hostName = (id) => hosts.find((h) => h.id === id)?.name || 'Unknown';
 
@@ -103,6 +129,14 @@ export default function EventHomePage() {
   }, [daysToShow, event]);
 
   const startSale = async () => {
+    // Free-tier guard: at the limit, prompt the user to upgrade instead of
+    // creating an 11th transaction. Once event.purchased flips true the
+    // live Firestore listener clears atFreeLimit and this guard short-
+    // circuits, so they can proceed without a page reload.
+    if (atFreeLimit) {
+      setShowUpgrade(true);
+      return;
+    }
     setCreating(true);
     try {
       const saleId = await createSale(event.id, { uid, hostId: currentHost.id });
@@ -321,18 +355,46 @@ export default function EventHomePage() {
             <div className="bg-ink text-white text-[12px] rounded-full px-3 py-1.5">Link copied</div>
           </div>
         )}
+
+        {upgradedToast && (
+          <div className="fixed top-16 left-0 right-0 flex justify-center pointer-events-none z-40 px-4">
+            <div className="bg-emerald-700 text-white text-[13px] font-semibold rounded-full px-4 py-2 shadow-card flex items-center gap-2">
+              <Check size={16} /> Event unlocked — record as many transactions as you want!
+            </div>
+          </div>
+        )}
       </main>
 
       {event.status !== 'closed' && (
-        <button
-          onClick={startSale}
-          disabled={creating}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 btn-primary shadow-card flex items-center gap-2 px-6"
-          style={{ paddingBottom: 'calc(0.875rem + env(safe-area-inset-bottom))' }}
-        >
-          <Plus size={20} /> {creating ? 'Starting…' : 'New transaction'}
-        </button>
+        <>
+          {!event.purchased && atFreeLimit && (
+            <div
+              className="fixed bottom-[4.5rem] left-1/2 -translate-x-1/2 bg-amber-100 text-amber-800 text-[11px] rounded-full px-3 py-1 flex items-center gap-1.5 shadow-card pointer-events-none"
+              style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+            >
+              <AlertTriangle size={11} /> Free limit reached — {FREE_SALE_LIMIT} of {FREE_SALE_LIMIT} transactions used
+            </div>
+          )}
+          <button
+            onClick={startSale}
+            disabled={creating}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 btn-primary shadow-card flex items-center gap-2 px-6"
+            style={{ paddingBottom: 'calc(0.875rem + env(safe-area-inset-bottom))' }}
+          >
+            {atFreeLimit ? (
+              <><Sparkles size={20} /> Unlock for $5</>
+            ) : (
+              <><Plus size={20} /> {creating ? 'Starting…' : 'New transaction'}</>
+            )}
+          </button>
+        </>
       )}
+
+      <UpgradeModal
+        eventId={event.id}
+        open={showUpgrade}
+        onClose={() => setShowUpgrade(false)}
+      />
     </div>
   );
 }

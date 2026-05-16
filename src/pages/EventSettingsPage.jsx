@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText, Plus, Navigation } from 'lucide-react';
+import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText, Plus, Navigation, Sparkles, Check } from 'lucide-react';
 import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
 import { renameEvent, setEventStatus, deleteEvent, updateEventDetails } from '../data/events.js';
 import { renameHost, addPlaceholderHost } from '../data/hosts.js';
 import { recordAudit } from '../data/audit.js';
 import { removeRecentEvent } from '../utils/storage.js';
+import { isGrandfathered, FREE_SALE_LIMIT } from '../data/billing.js';
+import UpgradeModal from '../components/UpgradeModal.jsx';
 
 export default function EventSettingsPage() {
   const { event, hosts, sales, currentHost, uid, switchHost } = useEvent();
@@ -23,6 +25,7 @@ export default function EventSettingsPage() {
   const [addingHost, setAddingHost] = useState(false);
   const [addHostError, setAddHostError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const [startDate, setStartDate] = useState(event.startDate || '');
   const [endDate, setEndDate] = useState(event.endDate || '');
   const [location, setLocation] = useState(event.location || '');
@@ -260,6 +263,11 @@ export default function EventSettingsPage() {
           </label>
         </section>
 
+        <UpgradeSection
+          event={event}
+          onUpgrade={() => setShowUpgrade(true)}
+        />
+
         <section className="card p-4 flex flex-col gap-2">
           <h3 className="text-[12px] uppercase tracking-wide text-muted">Hosts</h3>
           {hosts.map((h) => {
@@ -386,6 +394,77 @@ export default function EventSettingsPage() {
           </section>
         )}
       </main>
+
+      <UpgradeModal
+        eventId={event.id}
+        open={showUpgrade}
+        onClose={() => setShowUpgrade(false)}
+      />
     </div>
+  );
+}
+
+function UpgradeSection({ event, onUpgrade }) {
+  const purchased = !!event.purchased;
+  const grandfathered = isGrandfathered(event);
+  const purchasedAt = event.purchasedAt?.toMillis?.()
+    ? new Date(event.purchasedAt.toMillis())
+    : null;
+  const purchasedLabel = purchasedAt
+    ? purchasedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+
+  if (purchased) {
+    return (
+      <section className="card p-4 flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+          <Check size={18} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-[14px]">Unlimited transactions unlocked</div>
+          <div className="text-[12px] text-muted">
+            {purchasedLabel ? `Purchased ${purchasedLabel}` : 'This event has been upgraded.'}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (grandfathered) {
+    return (
+      <section className="card p-4 flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+          <Check size={18} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-[14px]">Unlimited transactions</div>
+          <div className="text-[12px] text-muted">
+            This event was created before the {FREE_SALE_LIMIT}-transaction free limit, so it stays unlimited.
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card p-4 flex flex-col gap-3">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-xl bg-accent/10 text-accent-deep flex items-center justify-center shrink-0">
+          <Sparkles size={18} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-[14px]">Unlock unlimited transactions</div>
+          <div className="text-[12px] text-muted">
+            Free events are limited to {FREE_SALE_LIMIT} transactions. Pay $5 once to remove the limit for this event.
+          </div>
+        </div>
+      </div>
+      <button
+        onClick={onUpgrade}
+        className="btn-primary w-full flex items-center justify-center gap-2"
+      >
+        <Sparkles size={16} /> Unlock for $5
+      </button>
+    </section>
   );
 }

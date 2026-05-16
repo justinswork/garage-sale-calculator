@@ -7,11 +7,23 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Billing-protected fields. Only the Stripe webhook (running with the
+    // admin SDK, which bypasses these rules) is allowed to touch these.
+    // Without this gate a savvy user could flip purchased=true on their
+    // own event and skip the $5 charge.
+    function isWritingPurchaseFields() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['purchased', 'purchasedAt', 'purchasedByUid', 'stripeCheckoutSessionId']);
+    }
+
     match /events/{eventId} {
       allow create: if signedIn()
         && request.resource.data.createdByUid == request.auth.uid
-        && request.resource.data.keys().hasAll(['name', 'createdAt', 'createdByUid', 'status']);
-      allow read, update: if signedIn();
+        && request.resource.data.keys().hasAll(['name', 'createdAt', 'createdByUid', 'status'])
+        // New events can't claim to already be paid-for.
+        && !('purchased' in request.resource.data);
+      allow read: if signedIn();
+      allow update: if signedIn() && !isWritingPurchaseFields();
       // Only the original creator can hard-delete the event (and the
       // creator-only audit cleanup below mirrors that gate).
       allow delete: if signedIn() && resource.data.createdByUid == request.auth.uid;
