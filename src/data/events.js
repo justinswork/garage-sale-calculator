@@ -45,6 +45,12 @@ export async function setEventStatus(eventId, status) {
   await updateDoc(doc(db, 'events', eventId), { status });
 }
 
+// AI features (photo-to-price helper). Defaults to ON when the field is
+// absent — events created before this flag existed should keep working.
+export async function setAiFeaturesEnabled(eventId, enabled) {
+  await updateDoc(doc(db, 'events', eventId), { aiFeaturesEnabled: enabled });
+}
+
 // Update one or more event detail fields (startDate, endDate, location, notes).
 // Pass null to clear a field. Caller is responsible for audit logging.
 export async function updateEventDetails(eventId, patch) {

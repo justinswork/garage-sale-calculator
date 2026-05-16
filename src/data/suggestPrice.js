@@ -61,8 +61,39 @@ function loadImage(file) {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('Image failed to load. Try a different photo.'));
+      reject(new Error("That photo didn't open. Try a different one."));
     };
     img.src = url;
   });
+}
+
+// Map raw errors from the suggestPrice flow to short, user-readable copy.
+// Falls back to the original message if no friendly mapping applies.
+export function friendlyError(err) {
+  if (!err) return 'Something went wrong. Try again.';
+  // FirebaseError uses `code` like 'functions/deadline-exceeded'.
+  const code = err.code || '';
+  if (typeof code === 'string') {
+    if (code === 'functions/unauthenticated') {
+      return 'You need to be signed in. Reload the page and try again.';
+    }
+    if (code === 'functions/deadline-exceeded') {
+      return 'The suggestion took too long. The server may be warming up — try once more.';
+    }
+    if (code === 'functions/resource-exhausted' || code === 'functions/unavailable') {
+      return "The pricing service is busy right now. Wait a moment and try again.";
+    }
+    if (code === 'functions/invalid-argument') {
+      // Server validation failures carry a usable message we wrote ourselves.
+      return err.message || 'That photo could not be used. Try a different one.';
+    }
+    if (code === 'functions/internal') {
+      return 'The pricing service hit an error. Try again, or try a clearer photo.';
+    }
+  }
+  // Browser/network failures from before the call even reaches the server.
+  if (err.message?.includes('NetworkError') || err.name === 'TypeError') {
+    return 'Network error. Check your connection and try again.';
+  }
+  return err.message || 'Something went wrong. Try again.';
 }

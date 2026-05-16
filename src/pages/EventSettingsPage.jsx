@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText } from 'lucide-react';
+import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText, Sparkles } from 'lucide-react';
 import { useEvent } from '../contexts/EventContext.jsx';
 import EventHeader from '../components/EventHeader.jsx';
-import { renameEvent, setEventStatus, deleteEvent, updateEventDetails } from '../data/events.js';
+import { renameEvent, setEventStatus, setAiFeaturesEnabled, deleteEvent, updateEventDetails } from '../data/events.js';
 import { renameHost } from '../data/hosts.js';
 import { recordAudit } from '../data/audit.js';
 import { removeRecentEvent } from '../utils/storage.js';
@@ -81,6 +81,21 @@ export default function EventSettingsPage() {
     recordAudit(event.id, {
       type: newStatus === 'closed' ? 'event.closed' : 'event.opened',
       summary: newStatus === 'closed' ? 'Closed the event' : 'Reopened the event',
+      byUid: uid,
+      byHostId: currentHost.id,
+      meta: {}
+    });
+  };
+
+  // Treat missing flag as enabled — events created before this setting
+  // existed should keep the feature on.
+  const aiEnabled = event.aiFeaturesEnabled !== false;
+  const toggleAi = async () => {
+    const next = !aiEnabled;
+    await setAiFeaturesEnabled(event.id, next);
+    recordAudit(event.id, {
+      type: next ? 'event.ai.enabled' : 'event.ai.disabled',
+      summary: next ? 'Turned on AI features' : 'Turned off AI features',
       byUid: uid,
       byHostId: currentHost.id,
       meta: {}
@@ -228,6 +243,25 @@ export default function EventSettingsPage() {
           ))}
           <div className="text-[12px] text-muted pt-1">
             New hosts join via the event link.
+          </div>
+        </section>
+
+        <section className="card p-4 flex flex-col gap-3">
+          <h3 className="text-[12px] uppercase tracking-wide text-muted">AI features</h3>
+          <div className="flex items-center justify-between">
+            <span className="text-[14px] flex items-center gap-2">
+              <Sparkles size={14} className="text-accent-deep" />
+              Price helper {aiEnabled ? 'on' : 'off'}
+            </span>
+            <button
+              onClick={toggleAi}
+              className="btn-secondary py-2 px-4 flex items-center gap-2 text-[14px]"
+            >
+              {aiEnabled ? 'Turn off' : 'Turn on'}
+            </button>
+          </div>
+          <div className="text-[12px] text-muted">
+            When on, hosts see a "Price an item" entry on the event home page that suggests garage-sale prices from a photo.
           </div>
         </section>
 

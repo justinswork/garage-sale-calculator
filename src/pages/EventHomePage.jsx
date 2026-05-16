@@ -103,19 +103,21 @@ export default function EventHomePage() {
         )}
         <EventDetailsSummary event={event} />
 
-        <Link
-          to={`/e/${event.id}/price-helper`}
-          className="card p-4 flex items-center gap-3 active:opacity-70"
-        >
-          <div className="rounded-full bg-accent-soft p-2.5 shrink-0">
-            <Sparkles size={20} className="text-accent-deep" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold text-ink text-[15px]">Price an item</div>
-            <div className="text-[13px] text-muted">Snap a photo to get a garage-sale price suggestion</div>
-          </div>
-          <ArrowRight size={16} className="text-muted shrink-0" />
-        </Link>
+        {event.aiFeaturesEnabled !== false && (
+          <Link
+            to={`/e/${event.id}/price-helper`}
+            className="card p-4 flex items-center gap-3 active:opacity-70"
+          >
+            <div className="rounded-full bg-accent-soft p-2.5 shrink-0">
+              <Sparkles size={20} className="text-accent-deep" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-ink text-[15px]">Price an item</div>
+              <div className="text-[13px] text-muted">Snap a photo to get a garage-sale price suggestion</div>
+            </div>
+            <ArrowRight size={16} className="text-muted shrink-0" />
+          </Link>
+        )}
 
         {!hasActivity ? (
           <WelcomeHero

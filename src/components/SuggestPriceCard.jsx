@@ -1,6 +1,17 @@
-import { useState } from 'react';
-import { Camera, X, AlertTriangle, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Camera, X, AlertTriangle, Sparkles, Check } from 'lucide-react';
 import { formatMoney } from '../utils/money.js';
+
+// Approximate timings for each AI stage based on observed runs. The bar
+// is faked client-side — we don't get progress events from the function —
+// but tuning the schedule to roughly match real-world latency makes the
+// loading feel honest rather than canned. Total ≈ 8s, which lines up
+// with typical end-to-end runtime.
+const STAGES = [
+  { label: 'Looking at your photo…', enterAt: 0 },
+  { label: 'Finding comparable listings…', enterAt: 4000 },
+  { label: 'Reasoning about a fair price…', enterAt: 6500 }
+];
 
 // One card that renders the loading / error / result states of the
 // photo-to-price flow. The parent owns `state`; this component is
@@ -20,19 +31,7 @@ export default function SuggestPriceCard({ state, onRetake, onDismiss }) {
   if (!state) return null;
 
   if (state.kind === 'loading') {
-    return (
-      <section className="card p-5 flex flex-col items-center gap-3">
-        <div className="w-6 h-6 rounded-full border-2 border-hairline border-t-accent animate-spin" />
-        <div className="text-[14px] text-muted">Identifying item and finding comps…</div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="text-[13px] text-muted underline underline-offset-2 mt-1"
-        >
-          Cancel
-        </button>
-      </section>
-    );
+    return <LoadingView onDismiss={onDismiss} />;
   }
 
   if (state.kind === 'error') {
@@ -117,6 +116,16 @@ function ResultView({ data, onRetake, onDismiss }) {
         )}
       </div>
 
+      {priceSuggestion.confidence === 'low' && (
+        <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 flex items-start gap-2 text-[13px] text-rose-900">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5 text-rose-700" />
+          <div>
+            <span className="font-semibold">Low-confidence suggestion.</span>{' '}
+            Treat this as a rough starting point — the photo or available listings didn't give a strong signal. A quick eyeball check is worth more than this number.
+          </div>
+        </div>
+      )}
+
       {/* confidence + identified description */}
       <div className="flex flex-col gap-2 text-[13px]">
         <div className="flex items-center gap-2 flex-wrap">
@@ -175,6 +184,66 @@ function ResultView({ data, onRetake, onDismiss }) {
           <Camera size={18} /> Price another item
         </button>
       </div>
+    </section>
+  );
+}
+
+function LoadingView({ onDismiss }) {
+  // Walks through the three AI stages as time passes. The schedule is
+  // approximate — if the function returns early, the parent unmounts
+  // this whole view before later stages "complete". If it runs long,
+  // the last stage stays active until the response arrives.
+  const [activeIdx, setActiveIdx] = useState(0);
+
+  useEffect(() => {
+    const start = Date.now();
+    const id = setInterval(() => {
+      const elapsed = Date.now() - start;
+      let idx = 0;
+      for (let i = 0; i < STAGES.length; i++) {
+        if (elapsed >= STAGES[i].enterAt) idx = i;
+      }
+      setActiveIdx(idx);
+    }, 250);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <section className="card p-5 flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <div className="w-5 h-5 rounded-full border-2 border-hairline border-t-accent animate-spin shrink-0" />
+        <div className="text-[14px] font-semibold text-ink">Working on it…</div>
+      </div>
+      <ul className="flex flex-col gap-1.5 pl-1">
+        {STAGES.map((s, i) => {
+          const done = i < activeIdx;
+          const active = i === activeIdx;
+          return (
+            <li
+              key={s.label}
+              className={`flex items-center gap-2 text-[13px] ${active ? 'text-ink' : done ? 'text-muted' : 'text-muted/60'}`}
+            >
+              <span className="w-4 shrink-0 flex justify-center">
+                {done ? (
+                  <Check size={14} className="text-accent" />
+                ) : active ? (
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                ) : (
+                  <span className="w-1.5 h-1.5 rounded-full bg-hairline" />
+                )}
+              </span>
+              {s.label}
+            </li>
+          );
+        })}
+      </ul>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="text-[13px] text-muted underline underline-offset-2 self-center mt-1"
+      >
+        Cancel
+      </button>
     </section>
   );
 }
