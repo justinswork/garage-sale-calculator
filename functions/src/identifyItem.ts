@@ -1,16 +1,19 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { IDENTIFY_ITEM_PROMPT } from './prompts';
+import { parseStructuredOutput } from './parseStructuredOutput';
 import type { IdentifiedItem, SuggestPriceRequest } from './types';
 
-// Claude vision call. Sends the photo + system prompt and asks for a
-// structured identification of the item.
+// Vision call. Sends the photo + system prompt and asks for a structured
+// identification. Uses Opus 4.7 because pricing accuracy is bottlenecked
+// on getting brand/model right.
 //
-// Uses Opus 4.7 because pricing depends heavily on getting brand/model right
-// — running this on a smaller model would be a false economy.
-//
-// NOTE: Phase 1 stub. Wire up the actual SDK call in Phase 3.
+// No `thinking` block — we want low latency on the user-facing path.
+// No `temperature`/`top_p` — removed on Opus 4.7.
 
-const IDENTIFY_SCHEMA = {
+const MODEL: Anthropic.Model = 'claude-opus-4-7';
+const MAX_TOKENS = 1024;
+
+const IDENTIFY_SCHEMA: { [key: string]: unknown } = {
   type: 'object',
   properties: {
     name: { type: 'string' },
@@ -37,27 +40,33 @@ const IDENTIFY_SCHEMA = {
 };
 
 export async function identifyItem(
-  _client: Anthropic,
-  _image: SuggestPriceRequest['image']
+  client: Anthropic,
+  image: SuggestPriceRequest['image']
 ): Promise<IdentifiedItem> {
-  // TODO (Phase 3): replace this stub with an actual Claude vision call.
-  //
-  // Sketch:
-  //   const response = await client.messages.create({
-  //     model: 'claude-opus-4-7',
-  //     max_tokens: 1024,
-  //     system: IDENTIFY_ITEM_PROMPT,
-  //     output_config: { format: { type: 'json_schema', schema: IDENTIFY_SCHEMA } },
-  //     messages: [{
-  //       role: 'user',
-  //       content: [
-  //         { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.base64 } },
-  //         { type: 'text', text: 'Identify the item in this photo.' }
-  //       ]
-  //     }]
-  //   });
-  //   return JSON.parse(textBlockOf(response));
-  void IDENTIFY_ITEM_PROMPT;
-  void IDENTIFY_SCHEMA;
-  throw new Error('identifyItem: not implemented (Phase 3)');
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: MAX_TOKENS,
+    system: IDENTIFY_ITEM_PROMPT,
+    output_config: {
+      format: { type: 'json_schema', schema: IDENTIFY_SCHEMA }
+    },
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: image.mediaType,
+              data: image.base64
+            }
+          },
+          { type: 'text', text: 'Identify the item in this photo.' }
+        ]
+      }
+    ]
+  });
+
+  return parseStructuredOutput<IdentifiedItem>(response, 'identifyItem');
 }
