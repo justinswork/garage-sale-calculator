@@ -631,28 +631,30 @@ function DebtRow({ debt, hosts, eventId, saleNumberMap, currentHost, uid, disabl
         >
           {showSales ? 'Hide transactions' : `Why? · ${debt.sales.length} transaction${debt.sales.length === 1 ? '' : 's'}`}
         </button>
-        {!disabled && (
-          <div className="ml-auto flex items-center gap-1.5">
-            <span className="text-[11px] text-muted">Paid via</span>
+      </div>
+      {!disabled && (
+        <div className="flex flex-col gap-1.5 pt-1">
+          <span className="text-[12px] text-muted">How was this paid?</span>
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => markPaid('cash')}
               disabled={busy}
-              className="text-[12px] font-semibold rounded-full pl-1.5 pr-3 py-1 bg-emerald-100 text-emerald-700 active:opacity-70 disabled:opacity-50 flex items-center gap-1"
+              className="flex-1 text-[13px] font-semibold rounded-xl px-3 py-2.5 bg-emerald-100 text-emerald-800 border border-emerald-200 active:bg-emerald-200 active:opacity-90 disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
-              <Banknote size={14} /> Cash
+              <Banknote size={16} /> Paid in cash
             </button>
             <button
               type="button"
               onClick={() => markPaid('digital')}
               disabled={busy}
-              className="text-[12px] font-semibold rounded-full pl-1.5 pr-3 py-1 bg-sky-100 text-sky-700 active:opacity-70 disabled:opacity-50 flex items-center gap-1"
+              className="flex-1 text-[13px] font-semibold rounded-xl px-3 py-2.5 bg-sky-100 text-sky-800 border border-sky-200 active:bg-sky-200 active:opacity-90 disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
-              <Smartphone size={14} /> Venmo
+              <Smartphone size={16} /> Paid via Venmo
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
       {showSales && (
         <div className="border-t border-hairline pt-2 flex flex-col gap-1.5">
           {debt.sales.map((s) => {
