@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Sparkles, AlertTriangle } from 'lucide-react';
+import { X, Sparkles, AlertTriangle, WifiOff } from 'lucide-react';
 import { startUpgradeCheckout, FREE_SALE_LIMIT, UNLOCK_PRICE_CENTS } from '../data/billing.js';
 import { watchPromo, effectiveUnlockPriceCents } from '../data/promo.js';
 import { formatMoney } from '../utils/money.js';
@@ -11,11 +11,31 @@ export default function UpgradeModal({ eventId, open, onClose }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [promo, setPromo] = useState(null);
+  // Best-effort detection. `navigator.onLine === true` doesn't *guarantee*
+  // we can reach Stripe (could be on a captive portal, slow link, etc.),
+  // but `false` is a reliable "definitely not gonna work" signal.
+  const [online, setOnline] = useState(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine
+  );
 
   // Live-listen to /config/promo so the price + banner update the instant
   // an admin flips the promo on or off from the Firebase Console.
   useEffect(() => watchPromo(setPromo), []);
   const effectivePrice = effectiveUnlockPriceCents(promo);
+
+  // Track connectivity changes so the modal flips between "Connect to
+  // upgrade" and the live unlock button without the user having to dismiss
+  // and reopen.
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
 
   // When the user clicks "Unlock for $5" we redirect to Stripe Checkout
   // via window.location.href. Safari (and others) often restore the page
@@ -43,7 +63,15 @@ export default function UpgradeModal({ eventId, open, onClose }) {
       // Full redirect — Stripe Checkout takes over the tab.
       window.location.href = url;
     } catch (err) {
-      setError(err?.message || 'Could not start checkout.');
+      // If the device says it's offline, that's by far the most likely
+      // reason a callable would fail. Surface a clearer message than the
+      // SDK's "internal" / "unavailable". Otherwise show whatever the
+      // underlying error says — could be a Stripe-side issue worth seeing.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setError('You appear to be offline. Connect to Wi-Fi or cellular and try again.');
+      } else {
+        setError(err?.message || 'Could not start checkout.');
+      }
       setBusy(false);
     }
   };
@@ -102,6 +130,13 @@ export default function UpgradeModal({ eventId, open, onClose }) {
           </li>
         </ul>
 
+        {!online && (
+          <div className="flex items-start gap-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 text-[12px]">
+            <WifiOff size={14} className="mt-0.5 shrink-0" />
+            <span>You're offline. Connect to Wi-Fi or cellular to upgrade.</span>
+          </div>
+        )}
+
         {error && (
           <div className="flex items-start gap-2 text-red-700 bg-red-50 rounded-xl p-3 text-[12px]">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -111,10 +146,12 @@ export default function UpgradeModal({ eventId, open, onClose }) {
 
         <button
           onClick={startCheckout}
-          disabled={busy}
+          disabled={busy || !online}
           className="btn-primary disabled:opacity-50"
         >
-          {busy ? 'Opening checkout…' : `Unlock for ${formatMoney(effectivePrice)}`}
+          {!online ? 'Connect to upgrade'
+            : busy ? 'Opening checkout…'
+            : `Unlock for ${formatMoney(effectivePrice)}`}
         </button>
 
         <button
