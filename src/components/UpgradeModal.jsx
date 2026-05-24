@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Sparkles, AlertTriangle } from 'lucide-react';
 import { startUpgradeCheckout, FREE_SALE_LIMIT } from '../data/billing.js';
 
@@ -8,6 +8,22 @@ import { startUpgradeCheckout, FREE_SALE_LIMIT } from '../data/billing.js';
 export default function UpgradeModal({ eventId, open, onClose }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  // When the user clicks "Unlock for $5" we redirect to Stripe Checkout
+  // via window.location.href. Safari (and others) often restore the page
+  // from the back/forward cache when the user hits cancel on Stripe and
+  // navigates back — bringing busy=true along with it and leaving the
+  // modal stuck on "Opening checkout…". Detect that case and clear state.
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.persisted) {
+        setBusy(false);
+        setError('');
+      }
+    };
+    window.addEventListener('pageshow', handler);
+    return () => window.removeEventListener('pageshow', handler);
+  }, []);
 
   if (!open) return null;
 
@@ -29,7 +45,6 @@ export default function UpgradeModal({ eventId, open, onClose }) {
       <div className="card w-full max-w-md p-5 flex flex-col gap-4 relative">
         <button
           onClick={onClose}
-          disabled={busy}
           className="absolute top-3 right-3 text-muted active:opacity-60 p-1"
           aria-label="Close"
         >
@@ -81,7 +96,6 @@ export default function UpgradeModal({ eventId, open, onClose }) {
 
         <button
           onClick={onClose}
-          disabled={busy}
           className="text-[13px] text-muted active:opacity-60"
         >
           Not now
