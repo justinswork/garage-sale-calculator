@@ -1,10 +1,30 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import type Stripe from 'stripe';
 import {
   stripeClient,
   stripeSecretKey,
   UNLOCK_PRICE_CENTS,
 } from './stripe';
+
+// Reads /config/promo. Returns the Stripe coupon ID to apply, or null if
+// no promo is currently active. Same checks as the client's resolveActivePromo
+// helper, but with the admin SDK and Timestamp type.
+async function getActivePromoCouponId(
+  db: FirebaseFirestore.Firestore
+): Promise<string | null> {
+  const snap = await db.collection('config').doc('promo').get();
+  if (!snap.exists) return null;
+  const data = snap.data() as {
+    active?: boolean;
+    couponId?: string;
+    endsAt?: Timestamp;
+  } | undefined;
+  if (!data?.active) return null;
+  if (typeof data.couponId !== 'string' || data.couponId.length === 0) return null;
+  if (data.endsAt && data.endsAt.toMillis() < Date.now()) return null;
+  return data.couponId;
+}
 
 // Callable function: client → returns a Stripe Checkout URL to redirect to.
 //
@@ -53,8 +73,9 @@ export const createCheckoutSession = onCall(
       throw new HttpsError('failed-precondition', 'Event is already unlocked.');
     }
 
-    const stripe = stripeClient();
-    const session = await stripe.checkout.sessions.create({
+    const promoCouponId = await getActivePromoCouponId(db);
+
+    const params: Stripe.Checkout.SessionCreateParams = {
       mode: 'payment',
       line_items: [
         {
@@ -75,17 +96,24 @@ export const createCheckoutSession = onCall(
         eventId,
         buyerUid: request.auth.uid,
       },
-      // Surfaces the "Add promotion code" link on Stripe's Checkout page.
-      // Codes themselves are managed in the Stripe Dashboard
-      // (Products → Coupons + Promotion codes), so adding/revoking codes
-      // never requires a code change or redeploy.
-      allow_promotion_codes: true,
       // ?upgraded=1 is a hint to the client that the user just paid — used
       // to show a success toast on return. Source of truth is the
       // purchased flag flipped by the webhook, not this query param.
       success_url: `${returnOrigin}/e/${eventId}?upgraded=1`,
       cancel_url: `${returnOrigin}/e/${eventId}`,
-    });
+    };
+    // Stripe forbids `discounts` and `allow_promotion_codes` together — must
+    // pick one. Sitewide promo wins: auto-apply the coupon and skip the
+    // user-code entry link. When no promo is active, surface the link so
+    // friends-and-family codes still work.
+    if (promoCouponId) {
+      params.discounts = [{ coupon: promoCouponId }];
+    } else {
+      params.allow_promotion_codes = true;
+    }
+
+    const stripe = stripeClient();
+    const session = await stripe.checkout.sessions.create(params);
 
     if (!session.url) {
       throw new HttpsError('internal', 'Stripe did not return a checkout URL.');

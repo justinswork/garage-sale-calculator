@@ -8,6 +8,7 @@ import { paymentColor } from '../utils/colors.js';
 import { useEvent } from '../contexts/EventContext.jsx';
 import { createSale } from '../data/sales.js';
 import { isAtFreeLimit, FREE_SALE_LIMIT } from '../data/billing.js';
+import { watchPromo, effectiveUnlockPriceCents } from '../data/promo.js';
 import UpgradeModal from '../components/UpgradeModal.jsx';
 import { setDailyStartingCash, clearDailyStartingCash } from '../data/events.js';
 import EventHeader from '../components/EventHeader.jsx';
@@ -25,6 +26,12 @@ export default function EventHomePage() {
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradedToast, setUpgradedToast] = useState(false);
+  const [promo, setPromo] = useState(null);
+
+  // Live promo listener — keeps the "Unlock for $X" button price in sync
+  // with /config/promo edits made via the Firebase Console.
+  useEffect(() => watchPromo(setPromo), []);
+  const unlockPrice = effectiveUnlockPriceCents(promo);
 
   // Stripe Checkout success-redirect carries ?upgraded=1. The webhook is
   // what actually flips event.purchased server-side, but the query param
@@ -382,7 +389,7 @@ export default function EventHomePage() {
             style={{ paddingBottom: 'calc(0.875rem + env(safe-area-inset-bottom))' }}
           >
             {atFreeLimit ? (
-              <><Sparkles size={20} /> Unlock for $5</>
+              <><Sparkles size={20} /> Unlock for {formatMoney(unlockPrice)}</>
             ) : (
               <><Plus size={20} /> {creating ? 'Starting…' : 'New transaction'}</>
             )}

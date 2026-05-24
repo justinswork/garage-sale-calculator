@@ -53,5 +53,14 @@ service cloud.firestore {
         allow read, write: if signedIn();
       }
     }
+
+    // App-wide config (e.g. /config/promo). Read-only to clients so the
+    // UI can react in real time to admin-driven promo windows. All writes
+    // happen through the Firebase Console with the admin's account, which
+    // bypasses these rules.
+    match /config/{configId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
   }
 }

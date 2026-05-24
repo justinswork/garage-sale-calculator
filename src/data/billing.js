@@ -7,6 +7,11 @@ import { functions } from '../firebase.js';
 // can be tuned without touching live data.
 export const FREE_SALE_LIMIT = 10;
 
+// Sticker price of the one-time unlock in cents. Must match the value used
+// in functions/src/stripe.ts (UNLOCK_PRICE_CENTS) since Stripe creates the
+// line item server-side; the client only uses this for display.
+export const UNLOCK_PRICE_CENTS = 500;
+
 // Events created before this timestamp predate billing and are exempt from
 // the free-tier limit forever. Lets existing users who already have 30+
 // transactions on their current sale keep working without hitting a fresh

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Pencil, Lock, Unlock, Copy, AlertTriangle, Home, Trash2, Calendar, MapPin, FileText, Plus, Navigation, Sparkles, Check } from 'lucide-react';
 import { useEvent } from '../contexts/EventContext.jsx';
@@ -7,7 +7,9 @@ import { renameEvent, setEventStatus, deleteEvent, updateEventDetails } from '..
 import { renameHost, addPlaceholderHost } from '../data/hosts.js';
 import { recordAudit } from '../data/audit.js';
 import { removeRecentEvent } from '../utils/storage.js';
-import { isGrandfathered, FREE_SALE_LIMIT } from '../data/billing.js';
+import { isGrandfathered, FREE_SALE_LIMIT, UNLOCK_PRICE_CENTS } from '../data/billing.js';
+import { watchPromo, effectiveUnlockPriceCents } from '../data/promo.js';
+import { formatMoney } from '../utils/money.js';
 import UpgradeModal from '../components/UpgradeModal.jsx';
 
 export default function EventSettingsPage() {
@@ -413,6 +415,9 @@ function UpgradeSection({ event, onUpgrade }) {
   const purchasedLabel = purchasedAt
     ? purchasedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
     : null;
+  const [promo, setPromo] = useState(null);
+  useEffect(() => watchPromo(setPromo), []);
+  const unlockPrice = effectiveUnlockPriceCents(promo);
 
   if (purchased) {
     return (
@@ -455,15 +460,29 @@ function UpgradeSection({ event, onUpgrade }) {
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-[14px]">Unlock unlimited transactions</div>
           <div className="text-[12px] text-muted">
-            Free events are limited to {FREE_SALE_LIMIT} transactions. Pay $5 once to remove the limit for this event.
+            Free events are limited to {FREE_SALE_LIMIT} transactions. Pay{' '}
+            {promo ? (
+              <>
+                <span className="line-through">{formatMoney(UNLOCK_PRICE_CENTS)}</span>{' '}
+                <span className="font-semibold text-ink">{formatMoney(unlockPrice)}</span>
+              </>
+            ) : (
+              <span className="font-semibold text-ink">{formatMoney(UNLOCK_PRICE_CENTS)}</span>
+            )}{' '}once to remove the limit for this event.
           </div>
         </div>
       </div>
+      {promo && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-2.5 text-[12px] flex items-center gap-2">
+          <Sparkles size={13} className="text-amber-700 shrink-0" />
+          <span><span className="font-semibold">{promo.label}</span> — {promo.percentOff}% off!</span>
+        </div>
+      )}
       <button
         onClick={onUpgrade}
         className="btn-primary w-full flex items-center justify-center gap-2"
       >
-        <Sparkles size={16} /> Unlock for $5
+        <Sparkles size={16} /> Unlock for {formatMoney(unlockPrice)}
       </button>
     </section>
   );

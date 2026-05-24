@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { X, Sparkles, AlertTriangle } from 'lucide-react';
-import { startUpgradeCheckout, FREE_SALE_LIMIT } from '../data/billing.js';
+import { startUpgradeCheckout, FREE_SALE_LIMIT, UNLOCK_PRICE_CENTS } from '../data/billing.js';
+import { watchPromo, effectiveUnlockPriceCents } from '../data/promo.js';
+import { formatMoney } from '../utils/money.js';
 
 // Shown when the user tries to create the 11th transaction on a free event,
 // or when they tap the "Unlock" upgrade prompt anywhere. Redirects to a
@@ -8,6 +10,12 @@ import { startUpgradeCheckout, FREE_SALE_LIMIT } from '../data/billing.js';
 export default function UpgradeModal({ eventId, open, onClose }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [promo, setPromo] = useState(null);
+
+  // Live-listen to /config/promo so the price + banner update the instant
+  // an admin flips the promo on or off from the Firebase Console.
+  useEffect(() => watchPromo(setPromo), []);
+  const effectivePrice = effectiveUnlockPriceCents(promo);
 
   // When the user clicks "Unlock for $5" we redirect to Stripe Checkout
   // via window.location.href. Safari (and others) often restore the page
@@ -58,10 +66,25 @@ export default function UpgradeModal({ eventId, open, onClose }) {
           <h2 className="text-[18px] font-bold">Unlock this event</h2>
         </div>
 
+        {promo && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 text-[13px] flex items-center gap-2">
+            <Sparkles size={14} className="text-amber-700 shrink-0" />
+            <span>
+              <span className="font-semibold">{promo.label}</span> — {promo.percentOff}% off!
+            </span>
+          </div>
+        )}
+
         <p className="text-[14px] text-muted leading-relaxed">
           You've reached the free limit of {FREE_SALE_LIMIT} transactions on this event.
-          Pay <span className="font-semibold text-ink">$5 once</span> to record unlimited
-          transactions for the rest of this event.
+          Pay {promo ? (
+            <>
+              <span className="line-through text-muted/70">{formatMoney(UNLOCK_PRICE_CENTS)}</span>{' '}
+              <span className="font-semibold text-ink">{formatMoney(effectivePrice)} once</span>
+            </>
+          ) : (
+            <span className="font-semibold text-ink">{formatMoney(UNLOCK_PRICE_CENTS)} once</span>
+          )} to record unlimited transactions for the rest of this event.
         </p>
 
         <ul className="flex flex-col gap-1.5 text-[13px] text-muted">
@@ -91,7 +114,7 @@ export default function UpgradeModal({ eventId, open, onClose }) {
           disabled={busy}
           className="btn-primary disabled:opacity-50"
         >
-          {busy ? 'Opening checkout…' : 'Unlock for $5'}
+          {busy ? 'Opening checkout…' : `Unlock for ${formatMoney(effectivePrice)}`}
         </button>
 
         <button
