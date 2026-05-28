@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoney, parseMoney, sanitizeMoneyInput } from './money.js';
+import { formatMoney, parseMoney, sanitizeMoneyInput, suggestCashAmounts } from './money.js';
 
 describe('formatMoney', () => {
   it('formats whole-dollar amounts', () => {
@@ -85,5 +85,53 @@ describe('sanitizeMoneyInput', () => {
   it('returns empty string for null/undefined', () => {
     expect(sanitizeMoneyInput(null)).toBe('');
     expect(sanitizeMoneyInput(undefined)).toBe('');
+  });
+});
+
+describe('suggestCashAmounts', () => {
+  it('suggests exact + next two bills for small totals', () => {
+    expect(suggestCashAmounts(300)).toEqual([300, 500, 1000]);
+    expect(suggestCashAmounts(600)).toEqual([600, 1000, 2000]);
+  });
+
+  it('skips bills too far above the total', () => {
+    // $10 should suggest just $20 (skips $50 — would be 5x)
+    expect(suggestCashAmounts(1000)).toEqual([1000, 2000]);
+    // $11 should suggest just $20 (skips $50 — would be ~4.5x)
+    expect(suggestCashAmounts(1100)).toEqual([1100, 2000]);
+  });
+
+  it('always includes the first bill above, even if far away', () => {
+    // $1 → $5 is 5x but still useful (no closer bill exists)
+    expect(suggestCashAmounts(100)).toEqual([100, 500]);
+  });
+
+  it('handles totals that exactly equal a bill', () => {
+    // $20 exact: suggest $50 ($50 is 2.5x, within range)
+    expect(suggestCashAmounts(2000)).toEqual([2000, 5000]);
+    // $50 exact: suggest $100
+    expect(suggestCashAmounts(5000)).toEqual([5000, 10000]);
+  });
+
+  it('handles totals between bills', () => {
+    expect(suggestCashAmounts(2500)).toEqual([2500, 5000, 10000]);
+    expect(suggestCashAmounts(4500)).toEqual([4500, 5000, 10000]);
+    expect(suggestCashAmounts(8000)).toEqual([8000, 10000]);
+  });
+
+  it('handles totals above all standard bills', () => {
+    expect(suggestCashAmounts(15000)).toEqual([15000]);
+  });
+
+  it('handles fractional totals', () => {
+    // $5.50 → $10 (1.8x), $20 (3.6x)
+    expect(suggestCashAmounts(550)).toEqual([550, 1000, 2000]);
+  });
+
+  it('returns empty for zero or invalid totals', () => {
+    expect(suggestCashAmounts(0)).toEqual([]);
+    expect(suggestCashAmounts(-100)).toEqual([]);
+    expect(suggestCashAmounts(null)).toEqual([]);
+    expect(suggestCashAmounts(undefined)).toEqual([]);
   });
 });

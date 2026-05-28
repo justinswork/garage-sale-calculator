@@ -24,7 +24,7 @@ import { watchQuickAdds, upsertQuickAdd, touchQuickAdd, removeQuickAdd } from '.
 import { recordAudit } from '../data/audit.js';
 import HostPill from '../components/HostPill.jsx';
 import MoneyInput from '../components/MoneyInput.jsx';
-import { formatMoney, parseMoney } from '../utils/money.js';
+import { formatMoney, parseMoney, suggestCashAmounts } from '../utils/money.js';
 import {
   itemsSubtotal, perHostFromItems, proportionalAllocation
 } from '../utils/sale.js';
@@ -341,6 +341,16 @@ export default function SalePage() {
     persistSale({
       cashReceived: cents,
       changeGiven: cents != null ? cents - finalTotal : null
+    });
+  };
+
+  // Quick-fill from a suggested cash amount. setCashStr alone won't trigger
+  // blur, so persist the new value explicitly with the cents we just chose.
+  const pickCashSuggestion = (cents) => {
+    setCashStr((cents / 100).toFixed(2));
+    persistSale({
+      cashReceived: cents,
+      changeGiven: cents - finalTotal
     });
   };
 
@@ -854,6 +864,13 @@ export default function SalePage() {
 
             {isPureCash && (
               <>
+                {moneyEditable && finalTotal > 0 && (
+                  <CashSuggestions
+                    totalCents={finalTotal}
+                    selectedCents={cashReceived}
+                    onPick={pickCashSuggestion}
+                  />
+                )}
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-semibold text-[15px]">Cash received</span>
                   <MoneyInput
@@ -1618,6 +1635,36 @@ function PaymentToggle({ method, active, disabled, icon, label, onClick }) {
       {icon}
       {label}
     </button>
+  );
+}
+
+// Quick-fill cash buttons. First button is always the exact total (labeled
+// "Exact"), followed by 1–2 standard bill denominations a customer is likely
+// to hand over. Tapping a button fills the cash input and persists.
+function CashSuggestions({ totalCents, selectedCents, onPick }) {
+  const suggestions = useMemo(() => suggestCashAmounts(totalCents), [totalCents]);
+  if (suggestions.length === 0) return null;
+  return (
+    <div className="flex gap-2">
+      {suggestions.map((cents, i) => {
+        const isExact = i === 0;
+        const active = selectedCents === cents;
+        return (
+          <button
+            key={cents}
+            type="button"
+            onClick={() => onPick(cents)}
+            className={`flex-1 rounded-2xl py-2.5 px-2 font-semibold text-[14px] border-2 tabular-nums active:opacity-70 ${
+              active
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-500'
+                : 'bg-white text-ink border-hairline'
+            }`}
+          >
+            {isExact ? `Exact ${formatMoney(cents)}` : formatMoney(cents)}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
