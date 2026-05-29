@@ -402,9 +402,26 @@ export default function SalePage() {
     persistSale({ digitalRecipientHostId: id });
   };
 
-  const persistSplitAmounts = () => {
-    const cashCents = cashStr.trim() ? parseMoney(cashStr) : null;
-    const digCents = splitDigitalStr.trim() ? parseMoney(splitDigitalStr) : null;
+  // When one split field blurs with a valid amount and the other is still
+  // empty, auto-fill the other with the remainder. Intentional mismatches
+  // (e.g. customer is short) still work — the user edits both fields and the
+  // existing mismatch warning takes over.
+  const persistSplitAmounts = (changedField) => {
+    let cashCents = cashStr.trim() ? parseMoney(cashStr) : null;
+    let digCents = splitDigitalStr.trim() ? parseMoney(splitDigitalStr) : null;
+
+    if (changedField === 'cash'
+        && cashCents != null && digCents == null
+        && cashCents >= 0 && cashCents <= finalTotal) {
+      digCents = finalTotal - cashCents;
+      setSplitDigitalStr((digCents / 100).toFixed(2));
+    } else if (changedField === 'digital'
+        && digCents != null && cashCents == null
+        && digCents >= 0 && digCents <= finalTotal) {
+      cashCents = finalTotal - digCents;
+      setCashStr((cashCents / 100).toFixed(2));
+    }
+
     persistSale({
       cashAmount: cashCents,
       digitalAmount: digCents
@@ -920,7 +937,7 @@ export default function SalePage() {
                   <MoneyInput
                     value={cashStr}
                     onChange={setCashStr}
-                    onBlur={persistSplitAmounts}
+                    onBlur={() => persistSplitAmounts('cash')}
                     disabled={!moneyEditable}
                     placeholder="$0.00"
                     className="w-28 text-right rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent tabular-nums disabled:opacity-60"
@@ -931,7 +948,7 @@ export default function SalePage() {
                   <MoneyInput
                     value={splitDigitalStr}
                     onChange={setSplitDigitalStr}
-                    onBlur={persistSplitAmounts}
+                    onBlur={() => persistSplitAmounts('digital')}
                     disabled={!moneyEditable}
                     placeholder="$0.00"
                     className="w-28 text-right rounded-xl bg-white border border-hairline px-3 py-2 outline-none focus:border-accent tabular-nums disabled:opacity-60"
